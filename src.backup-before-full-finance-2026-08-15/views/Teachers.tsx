@@ -1,0 +1,103 @@
+/**
+ * Rumiland Academy — Teachers Management Page
+ */
+import React, { useEffect, useState } from 'react';
+import { teacherService } from '@/services';
+import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
+import { Button, Input, Select, SearchInput, Textarea } from '@/components/Basic';
+import type { Column } from '@/components/Layout';
+import type { Teacher } from '@/db/schema';
+
+export const TeachersPage: React.FC = () => {
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Teacher | null>(null);
+  const [form, setForm] = useState({ first_name: '', last_name: '', national_id: '', phone: '', email: '', specialty: '', bio: '', status: 'active' as Teacher['status'] });
+  const [saving, setSaving] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleting, setDeleting] = useState<Teacher | null>(null);
+
+  useEffect(() => { loadTeachers(); }, [page, search]);
+
+  const loadTeachers = async () => {
+    setLoading(true);
+    const searchFn = (t: any) => !search || t.first_name?.toLowerCase().includes(search.toLowerCase()) || t.last_name?.toLowerCase().includes(search.toLowerCase()) || t.phone?.includes(search);
+    const r = await teacherService.getPaginated({ page, perPage: 20, searchFn });
+    setTeachers(r.data); setTotal(r.total); setLoading(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    if (editing) await teacherService.update(editing.id, form as any);
+    else await teacherService.create({ ...form as any, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    setSaving(false); setShowForm(false); setEditing(null);
+    setForm({ first_name: '', last_name: '', national_id: '', phone: '', email: '', specialty: '', bio: '', status: 'active' });
+    loadTeachers();
+  };
+
+  const handleDelete = async () => { if (deleting) { await teacherService.delete(deleting.id); setShowDelete(false); setDeleting(null); loadTeachers(); } };
+
+  const columns: Column<Teacher>[] = [
+    { key: 'name', title: 'نام و نام خانوادگی', sortable: true, render: (t) => <span style={{ fontWeight: 500 }}>{t.first_name} {t.last_name}</span> },
+    { key: 'national_id', title: 'کد ملی', sortable: true },
+    { key: 'phone', title: 'شماره تماس' },
+    { key: 'specialty', title: 'تخصص', render: (t) => t.specialty || '--' },
+    { key: 'status', title: 'وضعیت', render: (t) => <Badge variant={t.status === 'active' ? 'success' : 'neutral'}>{t.status === 'active' ? 'فعال' : 'غیرفعال'}</Badge> },
+    { key: 'actions', title: 'عملیات', render: (t) => <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <button onClick={(e) => { e.stopPropagation(); setEditing(t); setForm({ first_name: t.first_name, last_name: t.last_name, national_id: t.national_id, phone: t.phone, email: t.email || '', specialty: t.specialty || '', bio: t.bio || '', status: t.status }); setShowForm(true); }} style={{ color: 'var(--color-primary-400)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-sm)' }}>ویرایش</button>
+      <button onClick={(e) => { e.stopPropagation(); setDeleting(t); setShowDelete(true); }} style={{ color: 'var(--color-danger)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-sm)' }}>حذف</button>
+    </div> },
+  ];
+
+  const TeacherForm = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <Input label="نام" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+        <Input label="نام خانوادگی" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+        <Input label="کد ملی" value={form.national_id} onChange={(e) => setForm({ ...form, national_id: e.target.value })} />
+        <Input label="شماره تماس" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+        <Input label="ایمیل" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <Input label="تخصص" value={form.specialty} onChange={(e) => setForm({ ...form, specialty: e.target.value })} />
+        <Select label="وضعیت" options={[{ value: 'active', label: 'فعال' }, { value: 'inactive', label: 'غیرفعال' }]} value={form.status} onChange={(v) => setForm({ ...form, status: v as any })} />
+      </div>
+      <Textarea label="بیوگرافی" value={form.bio} onChange={(e: any) => setForm({ ...form, bio: e.target.value })} />
+    </div>
+  );
+
+  return (
+    <div style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>اساتید</h1>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <SearchInput placeholder="جستجو در اساتید..." value={search} onChange={(v) => { setSearch(v); setPage(1); }} />
+          <Button icon={<AddIcon />} onClick={() => { setEditing(null); setForm({ first_name: '', last_name: '', national_id: '', phone: '', email: '', specialty: '', bio: '', status: 'active' }); setShowForm(true); }}>افزودن استاد جدید</Button>
+        </div>
+      </div>
+
+      <Card padding="0">
+        <Table columns={columns} data={teachers} rowKey={(t) => t.id} isLoading={loading}
+          emptyState={<EmptyState title="هیچ استادی ثبت نشده است" description="برای افزودن اولین استاد کلیک کنید" action={<Button onClick={() => { setEditing(null); setShowForm(true); }}>افزودن استاد جدید</Button>} />}
+        />
+        <Pagination page={page} perPage={20} total={total} label="استاد" onPageChange={setPage} onPerPageChange={() => {}} />
+      </Card>
+
+      <Modal isOpen={showForm} onClose={() => { setShowForm(false); setEditing(null); }} title={editing ? 'ویرایش استاد' : 'افزودن استاد جدید'} size="md"
+        footer={<><Button variant="secondary" onClick={() => { setShowForm(false); setEditing(null); }}>انصراف</Button><Button onClick={handleSave} loading={saving}>{editing ? 'ذخیره' : 'ایجاد'}</Button></>}
+      >
+        {TeacherForm()}
+      </Modal>
+
+      <Modal isOpen={showDelete} onClose={() => setShowDelete(false)} title="حذف استاد" size="sm"
+        footer={<><Button variant="secondary" onClick={() => setShowDelete(false)}>انصراف</Button><Button variant="danger" onClick={handleDelete}>حذف</Button></>}
+      >
+        <p style={{ color: 'var(--color-text-secondary)' }}>آیا از حذف استاد «{deleting?.first_name} {deleting?.last_name}» اطمینان دارید؟</p>
+      </Modal>
+    </div>
+  );
+};
+
+function AddIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>; }

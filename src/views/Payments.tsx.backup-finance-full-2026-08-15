@@ -1,0 +1,821 @@
+/**
+ * Rumiland Academy — Payments Page
+ */
+import React, { useEffect, useState } from 'react';
+import { usePaymentStore } from '@/store';
+import { paymentService, studentService, registrationService } from '@/services';
+import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
+import { Button, Input, Select, SearchInput } from '@/components/Basic';
+import type { Column } from '@/components/Layout';
+import type { Payment } from '@/db/schema';
+
+interface PaymentRow {
+  payment: Payment;
+  studentName: string;
+  className: string;
+}
+
+interface StudentOption {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+interface RegistrationOption {
+  id: string;
+  registration_number: string;
+  student_id: string;
+  tuition_fee: number;
+  registration_fee: number;
+  discount: number;
+  payment_status: string;
+}
+
+export const PaymentsPage: React.FC = () => {
+  const { filters, isLoading } = usePaymentStore();
+
+  const [rows, setRows] = useState<PaymentRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
+
+  const [formData, setFormData] = useState({
+    student_id: '',
+    registration_id: '',
+    class_id: '',
+    course_id: '',
+    amount: '',
+    payment_date_jalali: '',
+    status: 'paid',
+    method: 'cash',
+    description: '',
+  });
+
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [formSaving, setFormSaving] = useState(false);
+
+  const [studentsList, setStudentsList] = useState<StudentOption[]>([]);
+  const [registrationsList, setRegistrationsList] = useState<RegistrationOption[]>([]);
+
+  useEffect(() => {
+    loadPayments();
+  }, [filters]);
+
+  useEffect(() => {
+    loadStudents();
+  }, []);
+
+  const loadPayments = async () => {
+    usePaymentStore.getState().setLoading(true);
+
+    try {
+      const result = await paymentService.getPaymentsResolved({
+        page: filters.page,
+        perPage: filters.perPage,
+        sortBy: filters.sortBy,
+        sortDirection: filters.sortDirection,
+        search: filters.search,
+        status: filters.status || undefined,
+        classId: filters.classId || undefined,
+      });
+
+      setRows(result.data);
+      setTotalCount(result.total);
+    } catch (error) {
+      console.error('Failed to load payments:', error);
+      setRows([]);
+      setTotalCount(0);
+    } finally {
+      usePaymentStore.getState().setLoading(false);
+    }
+  };
+
+  const loadStudents = async () => {
+    try {
+      const students = await studentService.getAll();
+
+      setStudentsList(
+        students.map((student: any) => ({
+          id: student.id,
+          first_name: student.first_name || '',
+          last_name: student.last_name || '',
+        }))
+      );
+    } catch (error) {
+      console.error('Failed to load students:', error);
+      setStudentsList([]);
+    }
+  };
+
+  const loadRegistrations = async (studentId: string) => {
+    if (!studentId) {
+      setRegistrationsList([]);
+      return;
+    }
+
+    try {
+      const registrations = await registrationService.getAll();
+
+      const filtered = registrations.filter(
+        (registration: any) =>
+          registration.student_id === studentId &&
+          !registration.deleted_at
+      );
+
+      setRegistrationsList(filtered);
+    } catch (error) {
+      console.error('Failed to load registrations:', error);
+      setRegistrationsList([]);
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!formData.student_id) {
+      errors.student_id = 'انتخاب دانشجو الزامی است';
+    }
+
+    if (!formData.amount || Number(formData.amount) <= 0) {
+      errors.amount = 'مبلغ نامعتبر است';
+    }
+
+    setFormErrors(errors);
+
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleStudentChange = (studentId: string) => {
+    setFormData((current) => ({
+      ...current,
+      student_id: studentId,
+      registration_id: '',
+      class_id: '',
+      course_id: '',
+    }));
+
+    setRegistrationsList([]);
+    loadRegistrations(studentId);
+  };
+
+  const handleRegistrationChange = (registrationId: string) => {
+    const registration = registrationsList.find(
+      (item) => item.id === registrationId
+    );
+
+    setFormData((current) => ({
+      ...current,
+      registration_id: registrationId,
+      class_id: registration?.class_id || '',
+      course_id: registration?.course_id || '',
+    }));
+  };
+
+  const handleAdd = async () => {
+    if (!validateForm()) return;
+
+    setFormSaving(true);
+
+    try {
+      const result = await paymentService.recordPayment({
+        student_id: formData.student_id,
+        registration_id: formData.registration_id || '',
+        class_id: formData.class_id || undefined,
+        course_id: formData.course_id || undefined,
+        amount: Number(formData.amount),
+        payment_date_jalali: formData.payment_date_jalali,
+        status: formData.status as Payment['status'],
+        method: formData.method as Payment['method'],
+        description: formData.description,
+        recorded_by: 'admin',
+      });
+
+      if (!result.success) {
+        console.error(result.error);
+        return;
+      }
+
+      setShowAddDialog(false);
+      resetForm();
+      await loadPayments();
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      student_id: '',
+      registration_id: '',
+      class_id: '',
+      course_id: '',
+      amount: '',
+      payment_date_jalali: '',
+      status: 'paid',
+      method: 'cash',
+      description: '',
+    });
+
+    setFormErrors({});
+    setRegistrationsList([]);
+  };
+
+  const handleDelete = async () => {
+    if (!deletingPayment) return;
+
+    try {
+      const result = await paymentService.delete(deletingPayment.id);
+
+      if (!result.success) {
+        console.error(result.error);
+        return;
+      }
+
+      setShowDeleteConfirm(false);
+      setDeletingPayment(null);
+      await loadPayments();
+    } catch (error) {
+      console.error('Failed to delete payment:', error);
+    }
+  };
+
+  const paidTotal = rows
+    .filter((row) => row.payment.status === 'paid')
+    .reduce((sum, row) => sum + row.payment.amount, 0);
+
+  const overdueTotal = rows
+    .filter((row) => row.payment.status === 'overdue')
+    .reduce((sum, row) => sum + row.payment.amount, 0);
+
+  const paidCount = rows.filter(
+    (row) => row.payment.status === 'paid'
+  ).length;
+
+  const averagePayment = paidCount > 0 ? paidTotal / paidCount : 0;
+
+  const columns: Column[] = [
+    {
+      key: 'payment_date',
+      title: 'تاریخ پرداخت',
+      sortable: true,
+      render: (row) =>
+        row.payment.payment_date_jalali ||
+        new Date(row.payment.payment_date).toLocaleDateString('fa-IR'),
+    },
+    {
+      key: 'student',
+      title: 'شاگرد',
+      render: (row) => (
+        <span style={{ fontWeight: 500 }}>{row.studentName}</span>
+      ),
+    },
+    {
+      key: 'class',
+      title: 'کلاس',
+      render: (row) => (
+        <span style={{ color: 'var(--color-text-secondary)' }}>
+          {row.className}
+        </span>
+      ),
+    },
+    {
+      key: 'amount',
+      title: 'مبلغ پرداختی',
+      sortable: true,
+      render: (row) => (
+        <span style={{ fontWeight: 600 }}>
+          {row.payment.amount.toLocaleString('fa-IR')} تومان
+        </span>
+      ),
+    },
+    {
+      key: 'method',
+      title: 'روش پرداخت',
+      render: (row) => {
+        const labels: Record<string, string> = {
+          cash: 'نقد',
+          card: 'کارت',
+          transfer: 'انتقال',
+          check: 'چک',
+        };
+
+        return labels[row.payment.method] || row.payment.method;
+      },
+    },
+    {
+      key: 'status',
+      title: 'وضعیت',
+      sortable: true,
+      render: (row) => (
+        <Badge
+          variant={
+            row.payment.status === 'paid'
+              ? 'success'
+              : row.payment.status === 'overdue'
+                ? 'danger'
+                : row.payment.status === 'pending'
+                  ? 'warning'
+                  : 'neutral'
+          }
+        >
+          {row.payment.status === 'paid'
+            ? 'پرداخت شده'
+            : row.payment.status === 'overdue'
+              ? 'معوق'
+              : row.payment.status === 'pending'
+                ? 'در انتظار'
+                : 'لغو شده'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'receipt',
+      title: 'رسید',
+      render: (row) =>
+        row.payment.receipt_url ? (
+          <a
+            href={row.payment.receipt_url}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              color: 'var(--color-primary-400)',
+              textDecoration: 'none',
+            }}
+          >
+            مشاهده
+          </a>
+        ) : (
+          <span style={{ color: 'var(--color-text-muted)' }}>--</span>
+        ),
+    },
+    {
+      key: 'actions',
+      title: 'عملیات',
+      render: (row) => (
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            setDeletingPayment(row.payment);
+            setShowDeleteConfirm(true);
+          }}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--color-danger)',
+            cursor: 'pointer',
+            fontSize: 'var(--font-size-sm)',
+            fontFamily: 'inherit',
+          }}
+        >
+          حذف
+        </button>
+      ),
+    },
+  ];
+
+  return (
+    <div style={{ padding: '1.5rem' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '1.5rem',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}
+      >
+        <h1
+          style={{
+            fontSize: 'var(--font-size-xl)',
+            fontWeight: 700,
+            margin: 0,
+          }}
+        >
+          مدیریت پرداخت‌ها
+        </h1>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <SearchInput
+            placeholder="جستجو در پرداخت‌ها..."
+            value={filters.search}
+            onChange={(value) =>
+              usePaymentStore
+                .getState()
+                .setFilters({ search: value, page: 1 })
+            }
+          />
+
+          <Select
+            placeholder="همه وضعیت‌ها"
+            options={[
+              { value: 'paid', label: 'پرداخت شده' },
+              { value: 'pending', label: 'در انتظار' },
+              { value: 'overdue', label: 'معوق' },
+              { value: 'cancelled', label: 'لغو شده' },
+            ]}
+            value={filters.status || ''}
+            onChange={(value) =>
+              usePaymentStore
+                .getState()
+                .setFilters({ status: value || null, page: 1 })
+            }
+          />
+
+          <Button
+            onClick={() => {
+              resetForm();
+              setShowAddDialog(true);
+            }}
+          >
+            ثبت پرداخت جدید
+          </Button>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gap: '0.75rem',
+          marginBottom: '1.5rem',
+        }}
+      >
+        <SummaryBox
+          title="مجموع دریافتی"
+          value={`${paidTotal.toLocaleString('fa-IR')} تومان`}
+          color="var(--color-success)"
+        />
+
+        <SummaryBox
+          title="پرداخت‌های معوق"
+          value={`${overdueTotal.toLocaleString('fa-IR')} تومان`}
+          color="var(--color-danger)"
+        />
+
+        <SummaryBox
+          title="میانگین پرداخت"
+          value={`${Math.round(averagePayment).toLocaleString('fa-IR')} تومان`}
+          color="var(--color-info)"
+        />
+
+        <SummaryBox
+          title="تعداد پرداخت‌ها"
+          value={totalCount.toLocaleString('fa-IR')}
+          color="var(--color-primary-400)"
+        />
+      </div>
+
+      <Table
+        columns={columns}
+        data={rows}
+        rowKey={(row) => row.payment.id}
+        isLoading={isLoading}
+        sortBy={filters.sortBy}
+        sortDirection={filters.sortDirection}
+        onSort={(key) =>
+          usePaymentStore.getState().setFilters({
+            sortBy: key,
+            sortDirection:
+              filters.sortBy === key && filters.sortDirection === 'asc'
+                ? 'desc'
+                : 'asc',
+          })
+        }
+        emptyState={
+          <EmptyState
+            title="هیچ پرداختی ثبت نشده است"
+            description="برای ثبت اولین پرداخت روی دکمه بالا کلیک کنید"
+            action={
+              <Button
+                onClick={() => {
+                  resetForm();
+                  setShowAddDialog(true);
+                }}
+              >
+                ثبت پرداخت جدید
+              </Button>
+            }
+          />
+        }
+      />
+
+      <Pagination
+        page={filters.page}
+        perPage={filters.perPage}
+        total={totalCount}
+        label="پرداخت"
+        onPageChange={(page) =>
+          usePaymentStore.getState().setFilters({ page })
+        }
+        onPerPageChange={(perPage) =>
+          usePaymentStore
+            .getState()
+            .setFilters({ perPage, page: 1 })
+        }
+      />
+
+      <Modal
+        isOpen={showAddDialog}
+        onClose={() => {
+          if (!formSaving) setShowAddDialog(false);
+        }}
+        title="ثبت پرداخت جدید"
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowAddDialog(false)}
+              disabled={formSaving}
+            >
+              انصراف
+            </Button>
+
+            <Button onClick={handleAdd} disabled={formSaving}>
+              {formSaving ? 'در حال ثبت...' : 'ثبت پرداخت'}
+            </Button>
+          </>
+        }
+      >
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}
+        >
+          <div>
+            <label
+              style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 500,
+                color: 'var(--color-text-secondary)',
+                display: 'block',
+                marginBottom: '0.375rem',
+              }}
+            >
+              شاگرد
+            </label>
+
+            <select
+              value={formData.student_id}
+              onChange={(event) =>
+                handleStudentChange(event.target.value)
+              }
+              style={{
+                width: '100%',
+                height: 40,
+                padding: '0 0.75rem',
+                background: 'var(--color-input)',
+                border: 'var(--border-default)',
+                borderRadius: 'var(--radius-input)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-md)',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              <option value="">انتخاب شاگرد...</option>
+
+              {studentsList.map((student) => (
+                <option key={student.id} value={student.id}>
+                  {student.first_name} {student.last_name}
+                </option>
+              ))}
+            </select>
+
+            {formErrors.student_id && (
+              <span
+                style={{
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-danger)',
+                  display: 'block',
+                  marginTop: '0.25rem',
+                }}
+              >
+                {formErrors.student_id}
+              </span>
+            )}
+          </div>
+
+          <div>
+            <label
+              style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 500,
+                color: 'var(--color-text-secondary)',
+                display: 'block',
+                marginBottom: '0.375rem',
+              }}
+            >
+              ثبت‌نام / کلاس
+            </label>
+
+            <select
+              value={formData.registration_id}
+              onChange={(event) =>
+                handleRegistrationChange(event.target.value)
+              }
+              disabled={!formData.student_id}
+              style={{
+                width: '100%',
+                height: 40,
+                padding: '0 0.75rem',
+                background: 'var(--color-input)',
+                border: 'var(--border-default)',
+                borderRadius: 'var(--radius-input)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-md)',
+                outline: 'none',
+                fontFamily: 'inherit',
+              }}
+            >
+              <option value="">
+                {formData.student_id
+                  ? 'انتخاب ثبت‌نام...'
+                  : 'ابتدا شاگرد را انتخاب کنید'}
+              </option>
+
+              {registrationsList.map((registration) => (
+                <option key={registration.id} value={registration.id}>
+                  {registration.registration_number}
+                  {' — '}
+                  {registration.tuition_fee.toLocaleString('fa-IR')} تومان
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <Input
+            label="مبلغ (تومان)"
+            type="number"
+            value={formData.amount}
+            onChange={(event) =>
+              setFormData({
+                ...formData,
+                amount: event.target.value,
+              })
+            }
+            error={formErrors.amount}
+          />
+
+          <Input
+            label="تاریخ پرداخت"
+            value={formData.payment_date_jalali}
+            onChange={(event) =>
+              setFormData({
+                ...formData,
+                payment_date_jalali: event.target.value,
+              })
+            }
+            placeholder="۱۴۰۳/۰۴/۱۵"
+          />
+
+          <Select
+            label="وضعیت"
+            options={[
+              { value: 'paid', label: 'پرداخت شده' },
+              { value: 'pending', label: 'در انتظار' },
+              { value: 'overdue', label: 'معوق' },
+              { value: 'cancelled', label: 'لغو شده' },
+            ]}
+            value={formData.status}
+            onChange={(value) =>
+              setFormData({
+                ...formData,
+                status: value,
+              })
+            }
+          />
+
+          <Select
+            label="روش پرداخت"
+            options={[
+              { value: 'cash', label: 'نقد' },
+              { value: 'card', label: 'کارت' },
+              { value: 'transfer', label: 'انتقال' },
+              { value: 'check', label: 'چک' },
+            ]}
+            value={formData.method}
+            onChange={(value) =>
+              setFormData({
+                ...formData,
+                method: value,
+              })
+            }
+          />
+
+          <div>
+            <label
+              style={{
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 500,
+                color: 'var(--color-text-secondary)',
+                display: 'block',
+                marginBottom: '0.375rem',
+              }}
+            >
+              توضیحات
+            </label>
+
+            <textarea
+              value={formData.description}
+              onChange={(event) =>
+                setFormData({
+                  ...formData,
+                  description: event.target.value,
+                })
+              }
+              style={{
+                width: '100%',
+                minHeight: 80,
+                padding: '0.75rem',
+                background: 'var(--color-input)',
+                border: 'var(--border-default)',
+                borderRadius: 'var(--radius-input)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-md)',
+                outline: 'none',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="حذف پرداخت"
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setShowDeleteConfirm(false)}
+            >
+              انصراف
+            </Button>
+
+            <Button
+              onClick={handleDelete}
+              style={{ color: 'var(--color-danger)' }}
+            >
+              حذف پرداخت
+            </Button>
+          </>
+        }
+      >
+        <p style={{ color: 'var(--color-text-secondary)' }}>
+          آیا از حذف این پرداخت اطمینان دارید؟
+        </p>
+      </Modal>
+    </div>
+  );
+};
+
+function SummaryBox({
+  title,
+  value,
+  color,
+}: {
+  title: string;
+  value: string;
+  color: string;
+}) {
+  return (
+    <Card padding="1rem" style={{ textAlign: 'center' }}>
+      <div
+        style={{
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-tertiary)',
+          marginBottom: '0.25rem',
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          fontSize: 'var(--font-size-md)',
+          fontWeight: 700,
+          color,
+        }}
+      >
+        {value}
+      </div>
+    </Card>
+  );
+}

@@ -1,0 +1,148 @@
+/**
+ * Rumiland Academy — Payments Page (fully resolved)
+ */
+import React, { useEffect, useState } from 'react';
+import { usePaymentStore } from '@/store';
+import { paymentService, studentService, registrationService } from '@/services';
+import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
+import { Button, Input, Select, SearchInput } from '@/components/Basic';
+import type { Column } from '@/components/Layout';
+import type { Payment } from '@/db/schema';
+
+interface PaymentRow { payment: Payment; studentName: string; className: string; }
+
+export const PaymentsPage: React.FC = () => {
+  const { filters, isLoading } = usePaymentStore();
+  const [rows, setRows] = useState<PaymentRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
+
+  const [formData, setFormData] = useState({ student_id: '', registration_id: '', class_id: '', course_id: '', amount: '', payment_date_jalali: '', status: 'paid', method: 'cash', description: '', recorded_by: 'admin' });
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [formSaving, setFormSaving] = useState(false);
+  const [studentsList, setStudentsList] = useState<any[]>([]);
+  const [registrationsList, setRegistrationsList] = useState<any[]>([]);
+
+  useEffect(() => { loadPayments(); loadStudents(); }, [filters]);
+
+  const loadPayments = async () => {
+    usePaymentStore.getState().setLoading(true);
+    const r = await paymentService.getPaymentsResolved({
+      page: filters.page, perPage: filters.perPage, sortBy: filters.sortBy, sortDirection: filters.sortDirection,
+      search: filters.search, status: filters.status || undefined, classId: filters.classId || undefined,
+    });
+    setRows(r.data); setTotalCount(r.total);
+    usePaymentStore.getState().setLoading(false);
+  };
+
+  const loadStudents = async () => { setStudentsList(await studentService.getAll()); };
+  const loadRegistrations = async (studentId: string) => {
+    if (!studentId) { setRegistrationsList([]); return; }
+    const regs = await registrationService.getAll();
+    setRegistrationsList(regs.filter((r: any) => r.student_id === studentId));
+  };
+
+  const validateForm = (): boolean => {
+    const e: Record<string, string> = {};
+    if (!formData.student_id) e.student_id = 'انتخاب دانشجو الزامی است';
+    if (!formData.amount || Number(formData.amount) <= 0) e.amount = 'مبلغ نامعتبر است';
+    setFormErrors(e); return Object.keys(e).length === 0;
+  };
+
+  const handleAdd = async () => {
+    if (!validateForm()) return;
+    setFormSaving(true);
+    await paymentService.recordPayment({
+      student_id: formData.student_id, registration_id: formData.registration_id || 'none',
+      class_id: formData.class_id || undefined, course_id: formData.course_id || undefined,
+      amount: Number(formData.amount), payment_date_jalali: formData.payment_date_jalali,
+      status: formData.status as any, method: formData.method as any,
+      description: formData.description, recorded_by: 'admin',
+    });
+    setFormSaving(false); setShowAddDialog(false); resetForm(); loadPayments();
+  };
+
+  const resetForm = () => setFormData({ student_id: '', registration_id: '', class_id: '', course_id: '', amount: '', payment_date_jalali: '', status: 'paid', method: 'cash', description: '', recorded_by: 'admin' });
+
+  const handleDelete = async () => {
+    if (!deletingPayment) return;
+    await paymentService.delete(deletingPayment.id);
+    setShowDeleteConfirm(false); setDeletingPayment(null); loadPayments();
+  };
+
+  const paidTotal = rows.filter((r: any) => r.payment.status === 'paid').reduce((s: number, r: any) => s + r.payment.amount, 0);
+  const overdueTotal = rows.filter((r: any) => r.payment.status === 'overdue').reduce((s: number, r: any) => s + r.payment.amount, 0);
+  const avg = rows.filter((r: any) => r.payment.status === 'paid').length > 0 ? paidTotal / rows.filter((r: any) => r.payment.status === 'paid').length : 0;
+
+  const columns: Column<PaymentRow>[] = [
+    { key: 'payment_date', title: 'تاریخ پرداخت', sortable: true, render: (r) => r.payment.payment_date_jalali || new Date(r.payment.payment_date).toLocaleDateString('fa-IR') },
+    { key: 'student', title: 'شاگرد', render: (r) => <span style={{ fontWeight: 500 }}>{r.studentName}</span> },
+    { key: 'amount', title: 'مبلغ پرداختی', sortable: true, render: (r) => <span style={{ fontWeight: 600 }}>{r.payment.amount.toLocaleString('fa-IR')} تومان</span> },
+    { key: 'status', title: 'وضعیت', sortable: true, render: (r) => <Badge variant={r.payment.status === 'paid' ? 'success' : r.payment.status === 'overdue' ? 'danger' : r.payment.status === 'pending' ? 'warning' : 'neutral'}>{r.payment.status === 'paid' ? 'پرداخت شده' : r.payment.status === 'overdue' ? 'معوق' : r.payment.status === 'pending' ? 'در انتظار' : 'لغو شده'}</Badge> },
+    { key: 'receipt', title: 'رسید', render: () => <span style={{ color: 'var(--color-text-muted)' }}>--</span> },
+    { key: 'actions', title: 'عملیات', render: (r) => (<div style={{ display: 'flex', gap: '0.5rem' }}><button onClick={(e) => { e.stopPropagation(); setDeletingPayment(r.payment); setShowDeleteConfirm(true); }} style={{ background: 'none', border: 'none', color: 'var(--color-danger)', cursor: 'pointer', fontSize: 'var(--font-size-sm)', fontFamily: 'inherit' }}>حذف</button></div>) },
+  ];
+
+  return (
+    <div style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>مدیریت پرداخت‌ها</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <SearchInput placeholder="جستجو در پرداخت‌ها..." value={filters.search} onChange={(v) => usePaymentStore.getState().setFilters({ search: v, page: 1 })} />
+          <Select placeholder="همه وضعیت‌ها" options={[{ value: 'paid', label: 'پرداخت شده' }, { value: 'pending', label: 'در انتظار' }, { value: 'overdue', label: 'معوق' }]} value={filters.status || ''} onChange={(v) => usePaymentStore.getState().setFilters({ status: v || null, page: 1 })} />
+          <Button icon={<AddIcon />} onClick={() => { resetForm(); setShowAddDialog(true); }}>ثبت پرداخت جدید</Button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        <SummaryBox title="مجموع دریافتی" value={`${paidTotal.toLocaleString('fa-IR')} تومان`} color="var(--color-success)" />
+        <SummaryBox title="پرداخت‌های معوق" value={`${overdueTotal.toLocaleString('fa-IR')} تومان`} color="var(--color-danger)" />
+        <SummaryBox title="میانگین پرداخت" value={`${Math.round(avg).toLocaleString('fa-IR')} تومان`} color="var(--color-info)" />
+        <SummaryBox title="تعداد پرداخت‌ها" value={totalCount.toLocaleString('fa-IR')} color="var(--color-primary-400)" />
+      </div>
+
+      <Card padding="0">
+        <Table columns={columns} data={rows} rowKey={(r) => r.payment.id} isLoading={isLoading} sortBy={filters.sortBy} sortDirection={filters.sortDirection} onSort={(key) => usePaymentStore.getState().setFilters({ sortBy: key, sortDirection: filters.sortBy === key && filters.sortDirection === 'asc' ? 'desc' : 'asc' })}
+          emptyState={<EmptyState title="هیچ پرداختی ثبت نشده است" description="برای ثبت اولین پرداخت روی دکمه بالا کلیک کنید" action={<Button onClick={() => { resetForm(); setShowAddDialog(true); }}>ثبت پرداخت جدید</Button>} />}
+        />
+        <Pagination page={filters.page} perPage={filters.perPage} total={totalCount} label="پرداخت" onPageChange={(p) => usePaymentStore.getState().setFilters({ page: p })} onPerPageChange={(p) => usePaymentStore.getState().setFilters({ perPage: p, page: 1 })} />
+      </Card>
+
+      <Modal isOpen={showAddDialog} onClose={() => setShowAddDialog(false)} title="ثبت پرداخت جدید" size="md"
+        footer={<><Button variant="secondary" onClick={() => setShowAddDialog(false)}>انصراف</Button><Button onClick={handleAdd} loading={formSaving}>ثبت</Button></>}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div>
+            <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>شاگرد</label>
+            <select value={formData.student_id} onChange={(e) => { setFormData({ ...formData, student_id: e.target.value }); loadRegistrations(e.target.value); }} style={{ width: '100%', height: 40, padding: '0 0.75rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-input)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-md)', outline: 'none' }}>
+              <option value="">انتخاب شاگرد...</option>
+              {studentsList.map((s: any) => <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>)}
+            </select>
+            {formErrors.student_id && <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>{formErrors.student_id}</span>}
+          </div>
+          <Input label="مبلغ (تومان)" type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} error={formErrors.amount} />
+          <Input label="تاریخ پرداخت" value={formData.payment_date_jalali} onChange={(e) => setFormData({ ...formData, payment_date_jalali: e.target.value })} placeholder="۱۴۰۳/۰۴/۱۵" />
+          <Select label="وضعیت" options={[{ value: 'paid', label: 'پرداخت شده' }, { value: 'pending', label: 'در انتظار' }, { value: 'overdue', label: 'معوق' }]} value={formData.status} onChange={(v) => setFormData({ ...formData, status: v })} />
+          <Select label="روش پرداخت" options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال' }, { value: 'check', label: 'چک' }]} value={formData.method} onChange={(v) => setFormData({ ...formData, method: v })} />
+          <div>
+            <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>توضیحات</label>
+            <textarea value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} style={{ width: '100%', minHeight: 60, padding: '0.75rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-input)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-md)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="حذف پرداخت" size="sm"
+        footer={<><Button variant="secondary" onClick={() => setShowDeleteConfirm(false)}>انصراف</Button><Button variant="danger" onClick={handleDelete}>حذف</Button></>}
+      >
+        <p style={{ color: 'var(--color-text-secondary)' }}>آیا از حذف این پرداخت اطمینان دارید؟</p>
+      </Modal>
+    </div>
+  );
+};
+
+function SummaryBox({ title, value, color }: { title: string; value: string; color: string }) {
+  return <Card padding="1rem" style={{ textAlign: 'center' }}><div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: '0.25rem' }}>{title}</div><div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color }}>{value}</div></Card>;
+}
+function AddIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>; }

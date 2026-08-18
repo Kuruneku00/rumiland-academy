@@ -1,0 +1,433 @@
+/**
+ * Rumiland Academy — Full Service Layer with resolved lookups
+ */
+import { BaseService } from './base';
+import { db } from '@/db/schema';
+import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
+import { v4 as uuid } from 'uuid';
+
+// ================================================================
+// RESOLVER UTILITIES
+// ================================================================
+async function resolveStudentName(id: string): Promise<string> {
+  const s = await db.students.get(id);
+  return s ? `${s.first_name} ${s.last_name}` : id;
+}
+async function resolveCourseTitle(id: string): Promise<string> {
+  const c = await db.courses.get(id);
+  return c?.title || id;
+}
+async function resolveClassName(id: string): Promise<string> {
+  const c = await db.classes.get(id);
+  return c?.code || id;
+}
+async function resolveTeacherName(id: string): Promise<string> {
+  const t = await db.teachers.get(id);
+  return t ? `${t.first_name} ${t.last_name}` : id;
+}
+
+// ================================================================
+// STUDENT SERVICE
+// ================================================================
+export class StudentService extends BaseService<Student> {
+  constructor() { super(db.students, 'students'); }
+
+  async searchStudents(query: string): Promise<Student[]> {
+    if (!query) return this.getAll();
+    const q = query.toLowerCase();
+    return db.students.filter((s: any) => !s.deleted_at && (s.first_name?.toLowerCase().includes(q) || s.last_name?.toLowerCase().includes(q) || s.national_id?.includes(q) || s.phone?.includes(q))).toArray();
+  }
+
+  async getStudentClasses(studentId: string): Promise<{ registration: Registration; class: Class; course: Course; teacher: Teacher | null }[]> {
+    const regs = await db.registrations.where('student_id').equals(studentId).filter((r: any) => !r.deleted_at).toArray();
+    const results = [];
+    for (const reg of regs) {
+      const cls = await db.classes.get(reg.class_id);
+      const course = cls ? await db.courses.get(cls.course_id) : null;
+      const teacher = cls ? await db.teachers.get(cls.teacher_id) : null;
+      if (cls && course) results.push({ registration: reg, class: cls, course, teacher: teacher || null });
+    }
+    return results;
+  }
+
+  async getStudentPayments(studentId: string): Promise<Payment[]> {
+    return db.payments.where('student_id').equals(studentId).filter((p: any) => !p.deleted_at).toArray();
+  }
+  async getStudentAttendance(studentId: string): Promise<Attendance[]> {
+    return db.attendance.where('student_id').equals(studentId).toArray();
+  }
+  async getStudentQuizResults(studentId: string): Promise<QuizResult[]> {
+    return db.quizResults.where('student_id').equals(studentId).toArray();
+  }
+}
+
+// ================================================================
+// TEACHER SERVICE
+// ================================================================
+export class TeacherService extends BaseService<Teacher> {
+  constructor() { super(db.teachers, 'teachers'); }
+}
+
+// ================================================================
+// COURSE SERVICE
+// ================================================================
+export class CourseService extends BaseService<Course> {
+  constructor() { super(db.courses, 'courses'); }
+  async getCourseClasses(courseId: string): Promise<Class[]> {
+    return db.classes.where('course_id').equals(courseId).filter((c: any) => !c.deleted_at).toArray();
+  }
+  async getCourseStudents(courseId: string): Promise<Student[]> {
+    const regs = await db.registrations.where('course_id').equals(courseId).filter((r: any) => !r.deleted_at).toArray();
+    const studentIds = [...new Set(regs.map((r: any) => r.student_id))];
+    const students: Student[] = [];
+    for (const sid of studentIds) { const s = await db.students.get(sid); if (s && !s.deleted_at) students.push(s); }
+    return students;
+  }
+}
+
+// ================================================================
+// CLASS SERVICE
+// ================================================================
+export class ClassService extends BaseService<Class> {
+  constructor() { super(db.classes, 'classes'); }
+  async getClassStudents(classId: string): Promise<{ student: Student; registration: Registration }[]> {
+    const regs = await db.registrations.where('class_id').equals(classId).filter((r: any) => !r.deleted_at).toArray();
+    const results = [];
+    for (const reg of regs) {
+      const student = await db.students.get(reg.student_id);
+      if (student && !student.deleted_at) results.push({ student, registration: reg });
+    }
+    return results;
+  }
+  async getClassSessions(classId: string): Promise<Session[]> {
+    return db.sessions.where('class_id').equals(classId).toArray();
+  }
+  async getClassWithDetails(classId: string): Promise<{ cls: Class; course: Course | null; teacher: Teacher | null } | null> {
+    const cls = await db.classes.get(classId);
+    if (!cls) return null;
+    const course = await db.courses.get(cls.course_id) || null;
+    const teacher = await db.teachers.get(cls.teacher_id) || null;
+    return { cls, course, teacher };
+  }
+}
+
+// ================================================================
+// REGISTRATION SERVICE
+// ================================================================
+export class RegistrationService extends BaseService<Registration> {
+  constructor() { super(db.registrations, 'registrations'); }
+  private async notify(title: string, message: string, type: Notification['type'] = 'success', category: Notification['category'] = 'class') {
+    try { await new NotificationService().send('system', title, message, type, category); } catch {}
+  }
+
+  async getRegistrationsResolved(options: { page?: number; perPage?: number } = {}): Promise<{ data: Array<{ registration: Registration; studentName: string; courseTitle: string; className: string }>; total: number }> {
+    const { page = 1, perPage = 20 } = options;
+    let all = await db.registrations.filter((r: any) => !r.deleted_at).reverse().sortBy('created_at');
+    const total = all.length;
+    const start = (page - 1) * perPage;
+    const slice = all.slice(start, start + perPage);
+    const data = await Promise.all(slice.map(async (reg) => ({
+      registration: reg,
+      studentName: await resolveStudentName(reg.student_id),
+      courseTitle: await resolveCourseTitle(reg.course_id),
+      className: await resolveClassName(reg.class_id),
+    })));
+    return { data, total };
+  }
+
+  async registerStudent(data: { student_id: string; course_id: string; class_id: string; registration_fee?: number; tuition_fee?: number; discount?: number; registration_date_jalali?: string; notes?: string }): Promise<{ success: boolean; data?: Registration; error?: string }> {
+    try {
+      const cls = await db.classes.get(data.class_id);
+      if (!cls) return { success: false, error: 'کلاس یافت نشد' };
+      const existingRegs = await db.registrations.where('class_id').equals(data.class_id).filter((r: any) => !r.deleted_at).count();
+      if (cls.capacity > 0 && existingRegs >= cls.capacity) return { success: false, error: 'ظرفیت کلاس تکمیل است' };
+      const dups = await db.registrations.where('student_id').equals(data.student_id).and((r: any) => r.class_id === data.class_id && !r.deleted_at).count();
+      if (dups > 0) return { success: false, error: 'دانشجو قبلاً در این کلاس ثبت‌نام شده است' };
+      const count = await db.registrations.filter((r: any) => !r.deleted_at).count();
+      const regNum = `REG-${String(count + 1).padStart(6, '0')}`;
+      const now = new Date().toISOString();
+      const registration: Registration = {
+        id: uuid(), registration_number: regNum,
+        student_id: data.student_id, course_id: data.course_id, class_id: data.class_id,
+        registration_date: now, registration_date_jalali: data.registration_date_jalali || '',
+        start_date: cls.start_date, expected_end_date: cls.end_date,
+        registration_fee: data.registration_fee || 0, tuition_fee: data.tuition_fee || 0,
+        discount: data.discount || 0, installments: 1,
+        payment_status: 'pending', attendance_status: 'active', completion_status: 'in_progress',
+        notes: data.notes || null, created_at: now, updated_at: now, deleted_at: null,
+      };
+      await db.registrations.put(registration);
+      if (cls.capacity > 0 && existingRegs + 1 >= cls.capacity) {
+        await db.classes.update(data.class_id, { status: 'full', updated_at: now } as any);
+      }
+      await this.logAudit('registration_created', 'registration', registration.id, 'ثبت‌نام جدید');
+      // Send notification
+      const student = await db.students.get(data.student_id);
+      if (student) {
+        await this.notify('ثبت‌نام جدید', `${student.first_name} ${student.last_name} در کلاس ثبت‌نام شد`, 'success', 'class');
+      }
+      return { success: true, data: registration };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }
+
+  private async logAudit(action: string, entityType: string, entityId: string, details: string) {
+    await db.auditLogs.put({ id: uuid(), user_id: 'system', action, entity_type: entityType, entity_id: entityId, details_json: JSON.stringify({ details }), ip_address: null, created_at: new Date().toISOString() });
+  }
+}
+
+// ================================================================
+// ATTENDANCE SERVICE
+// ================================================================
+export class AttendanceService extends BaseService<Attendance> {
+  constructor() { super(db.attendance, 'attendance'); }
+
+  async recordAttendance(data: { session_id: string; student_id: string; registration_id: string; class_id: string; date: string; status: Attendance['status']; late_minutes?: number; notes?: string; recorded_by: string }): Promise<{ success: boolean; data?: Attendance; error?: string }> {
+    try {
+      const existing = await db.attendance.where('session_id').equals(data.session_id).and((a: any) => a.student_id === data.student_id).first();
+      if (existing) return { success: false, error: 'حضور قبلاً ثبت شده است' };
+      const now = new Date().toISOString();
+      const record: Attendance = { id: uuid(), ...data, late_minutes: data.late_minutes || 0, notes: data.notes || null, created_at: now, updated_at: now };
+      await db.attendance.put(record);
+      return { success: true, data: record };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }
+
+  async getAttendanceForClass(classId: string): Promise<Array<{ attendance: Attendance; studentName: string }>> {
+    const records = await db.attendance.where('class_id').equals(classId).toArray();
+    return Promise.all(records.map(async (a) => ({ attendance: a, studentName: await resolveStudentName(a.student_id) })));
+  }
+
+  async getAttendanceForSession(sessionId: string): Promise<Array<{ attendance: Attendance; studentName: string }>> {
+    const records = await db.attendance.where('session_id').equals(sessionId).toArray();
+    return Promise.all(records.map(async (a) => ({ attendance: a, studentName: await resolveStudentName(a.student_id) })));
+  }
+}
+
+// ================================================================
+// PAYMENT SERVICE
+// ================================================================
+export class PaymentService extends BaseService<Payment> {
+  constructor() { super(db.payments, 'payments'); }
+
+  async recordPayment(data: { student_id: string; registration_id: string; class_id?: string; course_id?: string; amount: number; payment_date_jalali?: string; status?: Payment['status']; method?: Payment['method']; description?: string; recorded_by: string }): Promise<{ success: boolean; data?: Payment; error?: string }> {
+    try {
+      const now = new Date().toISOString();
+      const payment: Payment = {
+        id: uuid(), student_id: data.student_id, registration_id: data.registration_id,
+        class_id: data.class_id || null, course_id: data.course_id || null,
+        amount: data.amount, payment_date: now, payment_date_jalali: data.payment_date_jalali || '',
+        status: data.status || 'paid', method: data.method || 'cash',
+        receipt_url: null, description: data.description || null,
+        recorded_by: data.recorded_by, created_at: now, updated_at: now, deleted_at: null,
+      };
+      await db.payments.put(payment);
+      if (data.registration_id) {
+        const payments = await db.payments.where('registration_id').equals(data.registration_id).filter((p: any) => !p.deleted_at).toArray();
+        const total = payments.reduce((s: number, p: any) => s + p.amount, 0);
+        const reg = await db.registrations.get(data.registration_id);
+        if (reg) {
+          const expectedTotal = reg.tuition_fee + reg.registration_fee - reg.discount;
+          let newStatus: Registration['payment_status'] = 'pending';
+          if (total >= expectedTotal && expectedTotal > 0) newStatus = 'paid';
+          else if (total > 0) newStatus = 'partial';
+          await db.registrations.update(data.registration_id, { payment_status: newStatus, updated_at: now } as any);
+        }
+      }
+      return { success: true, data: payment };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }
+
+  async getPaymentsResolved(options: { page?: number; perPage?: number; sortBy?: string; sortDirection?: 'asc' | 'desc'; search?: string; status?: string; classId?: string } = {}): Promise<{ data: Array<{ payment: Payment; studentName: string; className: string }>; total: number }> {
+    const { page = 1, perPage = 20, sortBy = 'payment_date', sortDirection = 'desc', search, status, classId } = options;
+    let all = await db.payments.filter((p: any) => !p.deleted_at).toArray();
+    if (search) { const q = search.toLowerCase(); all = all.filter((p: any) => p.amount?.toString().includes(q) || p.description?.toLowerCase().includes(q)); }
+    if (status) all = all.filter((p: any) => p.status === status);
+    if (classId) all = all.filter((p: any) => p.class_id === classId);
+    all.sort((a: any, b: any) => { const av = a[sortBy]; const bv = b[sortBy]; if (av == null && bv == null) return 0; if (av == null) return 1; if (bv == null) return -1; const cmp = av < bv ? -1 : av > bv ? 1 : 0; return sortDirection === 'asc' ? cmp : -cmp; });
+    const total = all.length;
+    const start = (page - 1) * perPage;
+    const slice = all.slice(start, start + perPage);
+    const data = await Promise.all(slice.map(async (p) => ({ payment: p, studentName: await resolveStudentName(p.student_id), className: p.class_id ? await resolveClassName(p.class_id) : '--' })));
+    return { data, total };
+  }
+
+  async getPaymentsByStudent(studentId: string): Promise<Payment[]> {
+    return db.payments.where('student_id').equals(studentId).filter((p: any) => !p.deleted_at).toArray();
+  }
+}
+
+// ================================================================
+// QUIZ SERVICE
+// ================================================================
+export class QuizService extends BaseService<Quiz> {
+  constructor() { super(db.quizzes, 'quizzes'); }
+}
+
+// ================================================================
+// ANNOUNCEMENT SERVICE
+// ================================================================
+export class AnnouncementService extends BaseService<Announcement> {
+  constructor() { super(db.announcements, 'announcements'); }
+  async getActive(): Promise<Announcement[]> {
+    const now = new Date().toISOString();
+    return db.announcements.filter((a: any) => !a.deleted_at && (!a.expires_at || a.expires_at > now)).toArray();
+  }
+}
+
+// ================================================================
+// NOTIFICATION SERVICE
+// ================================================================
+export class NotificationService {
+  async send(userId: string, title: string, message: string, type: Notification['type'] = 'info', category: Notification['category'] = 'system', link?: string) {
+    await db.notifications.put({ id: uuid(), user_id: userId, title, message, type, category, is_read: false, link: link || null, created_at: new Date().toISOString() });
+  }
+  async getUnreadCount(userId: string): Promise<number> {
+    return db.notifications.where('user_id').equals(userId).and((n: any) => !n.is_read).count();
+  }
+  async getForUser(userId: string): Promise<Notification[]> {
+    return db.notifications.where('user_id').equals(userId).reverse().sortBy('created_at');
+  }
+  async markRead(id: string): Promise<void> { await db.notifications.update(id, { is_read: true }); }
+  async markAllRead(userId: string): Promise<void> {
+    const unread = await db.notifications.where('user_id').equals(userId).and((n: any) => !n.is_read).toArray();
+    for (const n of unread) await db.notifications.update(n.id, { is_read: true });
+  }
+}
+
+// ================================================================
+// DASHBOARD SERVICE
+// ================================================================
+export class DashboardService {
+  async getStats() {
+    const [students, activeClasses, teachers, payments] = await Promise.all([
+      db.students.filter((s: any) => !s.deleted_at).count(),
+      db.classes.filter((c: any) => !c.deleted_at && c.status === 'active').count(),
+      db.teachers.filter((t: any) => !t.deleted_at).count(),
+      db.payments.filter((p: any) => !p.deleted_at).toArray(),
+    ]);
+    const now = new Date(); const thisMonth = now.getMonth(); const thisYear = now.getFullYear();
+    const thisMonthPayments = payments.filter((p: any) => { const d = new Date(p.payment_date); return d.getMonth() === thisMonth && d.getFullYear() === thisYear; });
+    const monthlyRevenue = thisMonthPayments.reduce((s: number, p: any) => s + p.amount, 0);
+    const overdueCount = await db.payments.filter((p: any) => !p.deleted_at && p.status === 'overdue').count();
+    return { totalStudents: students, activeClasses, monthlyRevenue, totalTeachers: teachers, overdueCount, studentGrowth: 0, classGrowth: 0, revenueGrowth: 0, teacherGrowth: 0 };
+  }
+
+  async getTodayClasses() {
+    const today = new Date().toISOString().split('T')[0];
+    const sessions = await db.sessions.where('date').equals(today).toArray();
+    const classIds = [...new Set(sessions.map((s: any) => s.class_id))];
+    const classes = [];
+    for (const id of classIds) {
+      const result = await classService.getClassWithDetails(id);
+      if (result) classes.push(result);
+    }
+    return classes;
+  }
+
+  async getLatestTeachers(limit: number = 5) {
+    return db.teachers.filter((t: any) => !t.deleted_at).reverse().sortBy('created_at').then((arr: any) => arr.slice(0, limit));
+  }
+
+  async getFinancialSummary() {
+    const payments = await db.payments.filter((p: any) => !p.deleted_at).toArray();
+    const total = payments.reduce((s: number, p: any) => s + p.amount, 0);
+    const pending = payments.filter((p: any) => p.status === 'pending').reduce((s: number, p: any) => s + p.amount, 0);
+    const completed = payments.filter((p: any) => p.status === 'paid').reduce((s: number, p: any) => s + p.amount, 0);
+    const avg = payments.length > 0 ? total / payments.length : 0;
+    return { total, pending, completed, average: avg, count: payments.length };
+  }
+
+  async getRevenueChartData(months: number = 6): Promise<Array<{ name: string; value: number }>> {
+    const now = new Date();
+    const result = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear(); const month = d.getMonth();
+      const monthPayments = (await db.payments.filter((p: any) => !p.deleted_at).toArray()).filter((p: any) => { const pd = new Date(p.payment_date); return pd.getMonth() === month && pd.getFullYear() === year; });
+      const value = monthPayments.reduce((s: number, p: any) => s + p.amount, 0);
+      const monthsFa = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+      result.push({ name: monthsFa[month], value });
+    }
+    return result;
+  }
+
+  async getStudentDistribution(): Promise<Array<{ name: string; value: number; color: string }>> {
+    const courses = await db.courses.filter((c: any) => !c.deleted_at).toArray();
+    const colors = ['#6366f1', '#8b5cf6', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#3b82f6'];
+    const result = await Promise.all(courses.map(async (c, i) => {
+      const count = await db.registrations.where('course_id').equals(c.id).filter((r: any) => !r.deleted_at).count();
+      return { name: c.title, value: count, color: colors[i % colors.length] };
+    }));
+    return result.filter((r) => r.value > 0);
+  }
+}
+
+// ================================================================
+// AUTH SERVICE
+// ================================================================
+export class AuthService {
+  async login(username: string, password: string): Promise<{ success: boolean; user?: User; permissions?: string[]; error?: string }> {
+    const user = await db.users.where('username').equals(username).first();
+    if (!user) return { success: false, error: 'نام کاربری یا رمز عبور اشتباه است' };
+    const encoder = new TextEncoder(); const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    if (user.password_hash !== passwordHash) return { success: false, error: 'نام کاربری یا رمز عبور اشتباه است' };
+    if (!user.is_active) return { success: false, error: 'حساب کاربری غیرفعال است' };
+    const role = await db.roles.get(user.role_id);
+    const permissions = role?.permissions || [];
+    await db.users.update(user.id, { last_login_at: new Date().toISOString() });
+    return { success: true, user, permissions };
+  }
+}
+
+// ================================================================
+// SETTINGS SERVICE
+// ================================================================
+export class SettingsService {
+  async get(): Promise<AcademySettings | undefined> { return db.academySettings.get('settings-default'); }
+  async update(data: Partial<AcademySettings>): Promise<void> {
+    const existing = await db.academySettings.get('settings-default');
+    if (existing) await db.academySettings.put({ ...existing, ...data, updated_at: new Date().toISOString() });
+  }
+}
+
+// ================================================================
+// USER MANAGEMENT SERVICE
+// ================================================================
+export class UserManagementService extends BaseService<User> {
+  constructor() { super(db.users, 'users'); }
+  async createUser(data: { username: string; password: string; display_name: string; email: string; phone: string; role_id: string }): Promise<{ success: boolean; error?: string }> {
+    const existing = await db.users.where('username').equals(data.username).first();
+    if (existing) return { success: false, error: 'این نام کاربری قبلاً ثبت شده است' };
+    const encoder = new TextEncoder();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(data.password));
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const passwordHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const now = new Date().toISOString();
+    await db.users.put({
+      id: uuid(), username: data.username, password_hash: passwordHash,
+      display_name: data.display_name, email: data.email, phone: data.phone,
+      avatar_url: null, role_id: data.role_id, is_active: true,
+      last_login_at: null, created_at: now, updated_at: now, deleted_at: null,
+    });
+    return { success: true };
+  }
+}
+
+// Singletons
+export const studentService = new StudentService();
+export const teacherService = new TeacherService();
+export const courseService = new CourseService();
+export const classService = new ClassService();
+export const registrationService = new RegistrationService();
+export const attendanceService = new AttendanceService();
+export const paymentService = new PaymentService();
+export const quizService = new QuizService();
+export const announcementService = new AnnouncementService();
+export const notificationService = new NotificationService();
+export const dashboardService = new DashboardService();
+export const authService = new AuthService();
+export const settingsService = new SettingsService();
+export const userManagementService = new UserManagementService();
