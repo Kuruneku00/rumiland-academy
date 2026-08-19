@@ -5,3 +5,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Electron build artifacts
+electron/*.cjs
+release/
+
+# Local data (should not be committed)
+.rumiland-academy/

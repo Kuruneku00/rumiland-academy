@@ -9,6 +9,7 @@ import '@fontsource/vazirmatn/700.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { restoreSnapshot, hookAutoPersist, flushPersist, isElectron } from '@/services/persistence';
 import './theme/tokens.css';
 
 // Add global animations CSS
@@ -44,8 +45,30 @@ styleEl.textContent = `
 `;
 document.head.appendChild(styleEl);
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+async function bootstrap() {
+  // بازیابی داده‌های پایدار قبل از رندر (اگر موجود باشد)
+  try {
+    await restoreSnapshot();
+  } catch (e) {
+    console.error('[bootstrap] restore failed', e);
+  }
+
+  // اتصال همگام‌سازی خودکار: هر تغییر → ذخیره روی دیسک
+  hookAutoPersist();
+
+  // ذخیره فوری قبل از خروج از برنامه (Electron)
+  if (isElectron()) {
+    const bridge = (window as any).__rumilandBridge;
+    if (bridge && typeof bridge.onFlushRequest === 'function') {
+      bridge.onFlushRequest(() => { flushPersist(); });
+    }
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
+
+bootstrap();

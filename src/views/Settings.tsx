@@ -3,6 +3,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { settingsService, notificationService, userManagementService } from '@/services';
+import { getStoragePath, isElectron } from '@/services/persistence';
 import { db } from '@/db/schema';
 import { Card, EmptyState, Modal } from '@/components/Layout';
 import { Button, Input, Select } from '@/components/Basic';
@@ -138,6 +139,7 @@ export const SettingsPage: React.FC = () => {
       {activeSection === 'backup' && (
         <Card>
           <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1.25rem' }}>پشتیبانی و بازبینی</h3>
+          <StorageStatus />
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div style={{ padding: '1rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }}>
               <div style={{ fontWeight: 500, marginBottom: '0.5rem' }}>تهیه نسخه پشتیبان</div>
@@ -215,6 +217,38 @@ export const SettingsPage: React.FC = () => {
           </div>
         </Card>
       )}
+    </div>
+  );
+};
+
+// ================================================================
+// وضعیت ذخیره‌سازی داده
+// ================================================================
+const StorageStatus: React.FC = () => {
+  const [path, setPath] = useState<string>('');
+  const [electronMode, setElectronMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    getStoragePath().then(setPath);
+    setElectronMode(isElectron());
+  }, []);
+
+  return (
+    <div style={{ padding: '1rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', marginBottom: '1rem', border: 'var(--border-thin)' }}>
+      <div style={{ fontWeight: 500, marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        ذخیره‌سازی داده‌ها
+        <span style={{ padding: '0.125rem 0.5rem', borderRadius: 'var(--radius-full)', fontSize: 'var(--font-size-xs)', fontWeight: 600, background: electronMode ? 'var(--color-success-light)' : 'var(--color-warning-light)', color: electronMode ? 'var(--color-success)' : 'var(--color-warning)' }}>
+          {electronMode ? 'حالت دسکتاپ (پایدار)' : 'حالت مرورگر (موقت)'}
+        </span>
+      </div>
+      <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginBottom: '0.25rem' }}>
+        {electronMode
+          ? 'داده‌های شما به‌صورت خودکار روی دیسک ذخیره می‌شوند و پس از بستن برنامه یا ری‌استارت سیستم از بین نمی‌روند.'
+          : 'در حالت مرورگر داده‌ها در حافظهٔ مرورگر نگهداری می‌شوند. برای ذخیره‌سازی پایدار، نسخه دسکتاپ را اجرا کنید.'}
+      </p>
+      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', direction: 'ltr', textAlign: 'left', fontFamily: 'monospace' }}>
+        {path || '...'}
+      </div>
     </div>
   );
 };

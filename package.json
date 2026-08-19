@@ -8,7 +8,13 @@
         "build": "vite build",
         "preview": "vite preview",
         "lint": "eslint src --ext .ts,.tsx",
-        "format": "prettier --write src/**/*.{ts,tsx,css}"
+        "format": "prettier --write src/**/*.{ts,tsx,css}",
+        "build:electron": "node scripts/build-electron.mjs",
+        "start:electron": "node scripts/build-electron.mjs && cross-env NODE_ENV=production electron .",
+        "dev:electron": "node scripts/build-electron.mjs && concurrently -k \"vite\" \"wait-on tcp:3000 && cross-env VITE_DEV_SERVER_URL=http://localhost:3000 electron .\"",
+        "pack": "npm run build && node scripts/build-electron.mjs && electron-builder",
+        "pack:linux": "npm run build && node scripts/build-electron.mjs && electron-builder --linux",
+        "start": "node scripts/build-electron.mjs && electron ."
     },
     "dependencies": {
         "@fontsource/vazirmatn": "^5.3.0",
@@ -47,5 +53,36 @@
         "typescript": "^5.4.5",
         "vite": "^5.3.1",
         "wait-on": "^9.1.0"
+    },
+    "main": "electron/main.cjs",
+    "build": {
+        "appId": "com.rumiland.academy",
+        "productName": "Rumiland Academy",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "dist/**/*",
+            "electron/**/*",
+            "package.json"
+        ],
+        "linux": {
+            "target": [
+                "AppImage",
+                "deb"
+            ],
+            "category": "Office",
+            "icon": "build/icon.png"
+        },
+        "mac": {
+            "target": [
+                "dmg"
+            ]
+        },
+        "win": {
+            "target": [
+                "nsis"
+            ]
+        }
     }
 }
