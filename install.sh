@@ -18,6 +18,10 @@ APP_DIR="$HOME/.rumiland-academy-app"
 GIT_REPO="https://github.com/Kuruneku00/rumiland-academy.git"
 BRANCH="main"
 
+# مقدار پیش‌فرض میرور (اگر اینترنت به سرور اصلی کند بود، از میرور چین استفاده کن)
+ELECTRON_MIRROR="${ELECTRON_MIRROR:-https://npmmirror.com/mirrors/electron/}"
+export ELECTRON_MIRROR
+
 echo ""
 echo "========================================================"
 echo "   RUMILAND ACADEMY — نصب‌کننده"
@@ -28,7 +32,7 @@ echo ""
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 if ! command_exists node; then
-  echo "[1/5] Node.js نصب نیست. در حال نصب..."
+  echo "[1/6] Node.js نصب نیست. در حال نصب..."
   if command_exists apt-get; then
     sudo apt-get update -y
     sudo apt-get install -y curl ca-certificates
@@ -40,7 +44,7 @@ if ! command_exists node; then
   fi
 else
   NODE_VER=$(node -v)
-  echo "[1/5] Node.js موجود است: $NODE_VER"
+  echo "[1/6] Node.js موجود است: $NODE_VER"
 fi
 
 if ! command_exists git; then
@@ -48,8 +52,8 @@ if ! command_exists git; then
   sudo apt-get install -y git || true
 fi
 
-echo "[2/5] بارگیری کد برنامه از GitHub..."
-
+# ---------- 2. Clone ----------
+echo "[2/6] بارگیری کد برنامه از GitHub..."
 if [ -d "$APP_DIR" ]; then
   cd "$APP_DIR"
   git fetch origin
@@ -59,45 +63,57 @@ else
   cd "$APP_DIR"
 fi
 
-echo "[3/5] نصب وابستگی‌ها (npm install)..."
-npm install --no-audit --no-fund
+# ---------- 3. npm install (با اجرای اسکریپت‌ها) ----------
+echo "[3/6] نصب وابستگی‌ها (npm install)..."
+# غیرفعال‌کردن بلاک allow-scripts برای اطمینان از اجرای postinstall
+export npm_config_allow_scripts=false
+# ابتدا اسکریپت‌های allow-scripts را تأیید کن (در صورت وجود این npm جدید)
+npm install --no-audit --no-fund --ignore-scripts=false 2>&1 | grep -viE "deprecated|audit" | tail -30 || true
 
-# ---------- 2. Download Electron binary (before first run) ----------
-echo "[4/5] دانلود باینری Electron (فقط بار اول، ~۱۲۰ مگابایت)..."
-ELECTRON_MIRROR="${ELECTRON_MIRROR:-}"
-if [ -n "$ELECTRON_MIRROR" ]; then
-  export ELECTRON_MIRROR
-fi
-
-ELECTRON_OK=0
-for i in 1 2 3 4 5; do
-  if node node_modules/electron/install.js 2>/dev/null; then
-    ELECTRON_OK=1
-    break
+# ---------- 4. Download Electron binary explicitly ----------
+echo "[4/6] دانلود باینری Electron (بار اول ~۱۲۰ مگابایت)..."
+ELECTRON_DIST="$APP_DIR/node_modules/electron/dist/electron"
+if [ -x "$ELECTRON_DIST" ]; then
+  echo "   ✅ باینری Electron از قبل موجود است."
+else
+  # تلاش برای دانلود از طریق install.js خود پکیج electron
+  echo "   در حال دانلود باینری Electron از $ELECTRON_MIRROR ..."
+  (cd "$APP_DIR/node_modules/electron" && node install.js)
+  if [ ! -x "$ELECTRON_DIST" ]; then
+    echo "   ⚠️ دانلود از میرور ناموفق بود، تلاش از سرور اصلی GitHub..."
+    ELECTRON_MIRROR="https://github.com/electron/electron/releases/download/" \
+      node "$APP_DIR/node_modules/electron/install.js" || true
   fi
-  echo "   تلاش $i برای دانلود Electron ناموفق بود، دوباره تلاش می‌شود..."
-  sleep 3
-done
-
-if [ "$ELECTRON_OK" -ne 1 ]; then
-  echo "   ⚠️ دانلود خودکار Electron کامل نشد."
-  echo "   اگر اینترنتت کند است، با متغیر ELECTRON_MIRROR دوباره امتحان کن:"
-  echo "     ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/' bash install.sh"
-  echo "   (این هم اکنون تلاش می‌کند هنگام اجرا دانلود شود)"
 fi
 
-echo "[5/5] ساخت برنامه (build)..."
+if [ ! -x "$ELECTRON_DIST" ]; then
+  echo "   ❌ باینری Electron دانلود نشد."
+  echo "   دلیل معمول: اینترنت به GitHub Releases کند/مسدود است."
+  echo "   راه‌حل: بعداً کافی است فقط این خط را اجرا کن:"
+  echo "     ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/' node ~/.rumiland-academy-app/node_modules/electron/install.js"
+fi
+
+# ---------- 5. Build renderer + electron ----------
+echo "[5/6] ساخت برنامه (build)..."
 npm run build
 node scripts/build-electron.mjs
 
-# ---------- 3. Create launcher ----------
-echo "ساخت دستور اجرا..."
+# ---------- 6. Launcher ----------
+echo "[6/6] ساخت دستور اجرا..."
 
-LAUNCHER="$HOME/.rumiland-academy-app/launch.sh"
+LAUNCHER="$APP_DIR/launch.sh"
 cat > "$LAUNCHER" << 'LAUNCHER_EOF'
 #!/usr/bin/env bash
-cd "$HOME/.rumiland-academy-app"
-exec node_modules/.bin/electron . 2>/dev/null || exec npx electron .
+APP_DIR="$HOME/.rumiland-academy-app"
+cd "$APP_DIR"
+ELECTRON="$APP_DIR/node_modules/electron/dist/electron"
+if [ -x "$ELECTRON" ]; then
+  exec "$ELECTRON" .
+else
+  echo "باینری Electron پیدا نشد. در حال دانلود..."
+  ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/' node "$APP_DIR/node_modules/electron/install.js"
+  exec "$APP_DIR/node_modules/electron/dist/electron" .
+fi
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
@@ -114,11 +130,8 @@ echo "   برای اجرا، در ترمینال تایپ کنید:"
 echo ""
 echo "       rumiland"
 echo ""
-echo "   داده‌ها در این مسیر ذخیره می‌شوند (پاک نمی‌شوند):"
-echo "       ~/.rumiland-academy/data.json"
-echo ""
-echo "   پشتیبان‌گیری خودکار در:"
-echo "       ~/.rumiland-academy/backups/"
+echo "   داده‌ها در: ~/.rumiland-academy/data.json"
+echo "   پشتیبان خودکار در: ~/.rumiland-academy/backups/"
 echo ""
 echo "========================================================"
 
@@ -131,7 +144,7 @@ if ! echo "$PATH" | grep -q "$BIN_DIR"; then
   echo "     ~/.local/bin/rumiland"
 fi
 
-# ---------- 4. Run ----------
+# ---------- 7. Run ----------
 echo ""
 echo "در حال اجرای برنامه..."
 "$BIN_DIR/rumiland" || "$LAUNCHER"
