@@ -137,6 +137,14 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
 
+  // بکاپ خودکار هفتگی: بلافاصله یک بار + سپس هر ۷ روز
+  runWeeklyBackup();
+  const weeklyTimer = setInterval(runWeeklyBackup, WEEKLY_MS);
+
+  app.on('will-quit', () => {
+    clearInterval(weeklyTimer);
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -152,3 +160,43 @@ app.on('before-quit', () => {
     mainWindow.webContents.send('rumiland:flush-request');
   }
 });
+
+// ================================================================
+// WEEKLY AUTOMATIC BACKUP
+// ================================================================
+// هر هفته یک بار (هر ۷ روز) یک نسخه پشتیبان جداگانه با پسوند weekly می‌سازد
+// و بکاپ‌های weekly قدیمی‌تر از 30 روز را حذف می‌کند.
+
+const WEEKLY_MS = 7 * 24 * 60 * 60 * 1000; // هر ۷ روز
+
+function runWeeklyBackup(): void {
+  try {
+    ensureDirs();
+    if (!fs.existsSync(DATA_FILE)) return;
+
+    const stamp = new Date().toISOString().split('T')[0];
+    const target = path.join(BACKUP_DIR, `weekly-${stamp}.json`);
+
+    // اگر امروز قبلاً بکاپ weekly گرفته شده، تکرار نکن
+    if (fs.existsSync(target)) return;
+
+    fs.copyFileSync(DATA_FILE, target);
+
+    // حذف بکاپ‌های weekly قدیمی‌تر از 30 روز
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    for (const f of fs.readdirSync(BACKUP_DIR)) {
+      if (!f.startsWith('weekly-')) continue;
+      const full = path.join(BACKUP_DIR, f);
+      try {
+        const st = fs.statSync(full);
+        if (st.mtimeMs < cutoff && Date.now() - st.mtimeMs > WEEKLY_MS) {
+          fs.unlinkSync(full);
+        }
+      } catch { /* ignore */ }
+    }
+
+    console.log('[main] weekly backup created:', target);
+  } catch (e: any) {
+    console.warn('[main] weekly backup failed', e);
+  }
+}

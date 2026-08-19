@@ -11,6 +11,7 @@ import { PaymentsPage } from '@/views/Payments';
 import { CoursesPage } from '@/views/Courses';
 import { CalendarPage } from '@/views/Calendar';
 import { RegistrationAttendancePage } from '@/views/RegistrationAttendance';
+import { AttendancePage } from '@/views/Attendance';
 import { QuizzesPage, ReportsPage } from '@/views/QuizzesReports';
 import { SettingsPage } from '@/views/Settings';
 
@@ -35,7 +36,7 @@ const App: React.FC = () => {
       case 'students': return <StudentsPage onViewProfile={handleViewStudent} />;
       case 'courses': return <CoursesPage />;
       case 'registrations': return <RegistrationAttendancePage />;
-      case 'attendance': return <RegistrationAttendancePage />;
+      case 'attendance': return <AttendancePage />;
       case 'payments': return <PaymentsPage />;
       case 'quizzes': return <QuizzesPage />;
       case 'reports': return <ReportsPage />;

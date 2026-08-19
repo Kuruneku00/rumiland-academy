@@ -279,6 +279,7 @@ export interface QuizQuestion {
   points: number;
   order_index: number;
   image_url: string | null;
+  answer_image_url: string | null;
   audio_url: string | null;
 }
 

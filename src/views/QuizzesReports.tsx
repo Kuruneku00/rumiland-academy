@@ -39,7 +39,7 @@ export const QuizzesPage: React.FC = () => {
   const [questionForm, setQuestionForm] = useState(emptyQuestionForm());
 
   function emptyQuizForm() { return { title: '', description: '', course_id: '', class_id: '', teacher_id: '', quiz_type: 'multiple_choice', passing_score: 50, max_score: 100, time_limit_minutes: 60, start_date: '', end_date: '', is_random_questions: false, shuffle_answers: true, auto_grade: true, status: 'draft' }; }
-  function emptyQuestionForm() { return { question_text: '', question_type: 'multiple_choice' as const, options: ['', '', '', ''], correct_answer: '', points: 10 }; }
+  function emptyQuestionForm(): any { return { question_text: '', question_type: 'multiple_choice', options: ['', '', '', ''], correct_answer: '', points: 10, question_image: null as string | null, answer_image: null as string | null }; }
 
   useEffect(() => { loadData(); }, [page, search]);
 
@@ -75,7 +75,10 @@ export const QuizzesPage: React.FC = () => {
       question_text: questionForm.question_text, question_type: questionForm.question_type,
       options_json: JSON.stringify(questionForm.options),
       correct_answer: questionForm.correct_answer, points: questionForm.points,
-      order_index: existingQuestions.length + 1, image_url: null, audio_url: null,
+      order_index: existingQuestions.length + 1,
+      image_url: questionForm.question_image || null,
+      answer_image_url: questionForm.answer_image || null,
+      audio_url: null,
     });
     await reloadQuestions(selectedQuiz.id);
     setSaving(false); setShowQuestionDialog(false); resetQuestionForm();
@@ -141,6 +144,17 @@ export const QuizzesPage: React.FC = () => {
       });
     }
     setShowCertificateDialog(false);
+  };
+
+  // خواندن فایل تصویر و تبدیل به base64 data URL
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'question_image' | 'answer_image') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { alert('فقط فایل تصویر مجاز است'); return; }
+    if (file.size > 2 * 1024 * 1024) { alert('حداکثر حجم تصویر ۲ مگابایت است'); return; }
+    const reader = new FileReader();
+    reader.onload = () => setQuestionForm({ ...questionForm, [field]: reader.result as string });
+    reader.readAsDataURL(file);
   };
 
   function resetQuizForm() { setQuizForm(emptyQuizForm()); }
@@ -229,6 +243,30 @@ export const QuizzesPage: React.FC = () => {
               ))}
             </div>
           )}
+          {/* آپلود تصویر سوال و پاسخ */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>تصویر صورت سوال (اختیاری)</label>
+              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'question_image')} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }} />
+              {questionForm.question_image && (
+                <div style={{ marginTop: '0.5rem', position: 'relative', display: 'inline-block' }}>
+                  <img src={questionForm.question_image} alt="سوال" style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
+                  <button onClick={() => setQuestionForm({ ...questionForm, question_image: null })} style={{ position: 'absolute', top: 4, left: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer' }}>×</button>
+                </div>
+              )}
+            </div>
+            <div>
+              <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>تصویر پاسخ/جواب (اختیاری)</label>
+              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'answer_image')} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }} />
+              {questionForm.answer_image && (
+                <div style={{ marginTop: '0.5rem', position: 'relative', display: 'inline-block' }}>
+                  <img src={questionForm.answer_image} alt="پاسخ" style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
+                  <button onClick={() => setQuestionForm({ ...questionForm, answer_image: null })} style={{ position: 'absolute', top: 4, left: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer' }}>×</button>
+                </div>
+              )}
+            </div>
+          </div>
+
           <Input label="پاسخ صحیح" value={questionForm.correct_answer} onChange={(e) => setQuestionForm({ ...questionForm, correct_answer: e.target.value })} />
           <Input label="امتیاز" type="number" value={String(questionForm.points)} onChange={(e) => setQuestionForm({ ...questionForm, points: Number(e.target.value) })} />
         </div>
@@ -237,7 +275,7 @@ export const QuizzesPage: React.FC = () => {
             <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, marginBottom: '0.75rem' }}>سوالات ثبت شده ({questions.length})</h4>
             {questions.map((q: any, i: number) => (
               <div key={q.id} style={{ padding: '0.5rem 0', borderBottom: 'var(--border-thin)', fontSize: 'var(--font-size-sm)', display: 'flex', justifyContent: 'space-between' }}>
-                <span>{i + 1}. {q.question_text}</span><span style={{ color: 'var(--color-text-muted)' }}>{q.points} امتیاز</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{i + 1}. {q.question_text}{q.image_url ? <img src={q.image_url} alt="" style={{ height: 28, width: 28, objectFit: 'cover', borderRadius: 4, border: 'var(--border-thin)' }} /> : null}{q.answer_image_url ? <img src={q.answer_image_url} alt="" title="تصویر پاسخ" style={{ height: 28, width: 28, objectFit: 'cover', borderRadius: 4, border: 'var(--border-thin)' }} /> : null}</span><span style={{ color: 'var(--color-text-muted)' }}>{q.points} امتیاز</span>
               </div>
             ))}
           </div>
@@ -292,44 +330,159 @@ export const QuizzesPage: React.FC = () => {
 // ================================================================
 
 export const ReportsPage: React.FC = () => {
-  const [stats, setStats] = useState({ students: 0, classes: 0, attendancePct: 0, revenue: 0, courses: 0, teachers: 0, payments: 0, registrations: 0 });
+  const [stats, setStats] = useState<any>({ students: 0, classes: 0, attendancePct: 0, revenue: 0, courses: 0, teachers: 0, payments: 0, registrations: 0, debtors: 0, totalTuition: 0, totalPaid: 0 });
+  const [classDist, setClassDist] = useState<any[]>([]);
+  const [monthlyIncome, setMonthlyIncome] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadStats(); }, []);
 
   const loadStats = async () => {
     const [students, classes, teachers, payments, courses, registrations, attendance] = await Promise.all([
-      db.students.filter((s: any) => !s.deleted_at).count(),
-      db.classes.filter((c: any) => !c.deleted_at).count(),
-      db.teachers.filter((t: any) => !t.deleted_at).count(),
-      db.payments.filter((p: any) => !p.deleted_at).toArray(),
-      db.courses.filter((c: any) => !c.deleted_at).count(),
-      db.registrations.filter((r: any) => !r.deleted_at).count(),
+      db.students.filter((s: any) => !s.deleted_at).toArray(),
+      db.classes.filter((c: any) => !c.deleted_at).toArray(),
+      db.teachers.filter((t: any) => !t.deleted_at).toArray(),
+      db.payments.filter((p: any) => !p.deleted_at && p.status === 'paid').toArray(),
+      db.courses.filter((c: any) => !c.deleted_at).toArray(),
+      db.registrations.filter((r: any) => !r.deleted_at).toArray(),
       db.attendance.toArray(),
     ]);
-    const revenue = payments.reduce((s: number, p: any) => s + p.amount, 0);
+
+    const revenue = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+    const totalTuition = registrations.reduce((sum: number, r: any) => sum + (Number(r.total_amount) || 0), 0);
+    const totalPaid = registrations.reduce((sum: number, r: any) => sum + (Number(r.paid_amount) || 0), 0);
+    const debtors = registrations.filter((r: any) => (Number(r.remaining_amount) || 0) > 0).length;
+
     const attPresent = attendance.filter((a: any) => a.status === 'present').length;
     const attPct = Math.round((attPresent / (attendance.length || 1)) * 100);
-    setStats({ students, classes, attendancePct: attPct, revenue, courses, teachers, payments: payments.length, registrations });
+
+    // توزیع دانش‌آموز در کلاس‌ها (بر اساس ثبت‌نام‌های فعال)
+    const distMap = new Map<string, number>();
+    for (const c of classes) {
+      const count = registrations.filter((r: any) => r.class_id === c.id).length;
+      distMap.set(c.code || c.id, count);
+    }
+    const dist = Array.from(distMap.entries()).map(([name, value]) => ({ name, value }));
+    const maxDist = Math.max(1, ...dist.map((d) => d.value));
+    setClassDist(dist.map((d) => ({ ...d, pct: Math.round((d.value / maxDist) * 100) })));
+
+    // درآمد ماهانه (سال جاری میلادی) بر اساس payment_date
+    const now = new Date();
+    const months: any[] = [];
+    const monthNames = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
+    // گروه‌بندی بر اساس ماه میلادی؛ سپس نگاشت ساده به برچسب شمسی تقریبی
+    const incomeMap = new Map<string, number>();
+    for (const p of payments) {
+      const d = new Date(p.payment_date);
+      if (isNaN(d.getTime())) continue;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      incomeMap.set(key, (incomeMap.get(key) || 0) + (Number(p.amount) || 0));
+    }
+    const sortedKeys = Array.from(incomeMap.keys()).sort().slice(-6);
+    const maxIncome = Math.max(1, ...sortedKeys.map((k) => incomeMap.get(k) || 0));
+    setMonthlyIncome(sortedKeys.map((k) => {
+      const [y, m] = k.split('-').map(Number);
+      return { label: `${monthNames[(m - 1 + 8) % 12]} ${y}`, value: incomeMap.get(k) || 0, pct: Math.round(((incomeMap.get(k) || 0) / maxIncome) * 100) };
+    }));
+
+    setStats({
+      students: students.length,
+      classes: classes.length,
+      teachers: teachers.length,
+      courses: courses.length,
+      payments: payments.length,
+      registrations: registrations.length,
+      attendancePct: attPct,
+      revenue,
+      totalTuition,
+      totalPaid,
+      debtors,
+    });
     setLoading(false);
   };
+
+  const cards = [
+    { title: 'تعداد هنرجویان', value: stats.students, color: 'var(--color-primary-400)' },
+    { title: 'کلاس‌های فعال', value: stats.classes, color: 'var(--color-success)' },
+    { title: 'درصد حضور', value: `${stats.attendancePct}%`, color: 'var(--color-info)' },
+    { title: 'درآمد کل (تومان)', value: stats.revenue, color: 'var(--color-warning)' },
+    { title: 'کل شهریه ثبت‌شده (تومان)', value: stats.totalTuition, color: 'var(--color-accent-400)' },
+    { title: 'مبلغ دریافت‌شده (تومان)', value: stats.totalPaid, color: 'var(--color-success)' },
+    { title: 'بدهکاران', value: stats.debtors, color: 'var(--color-danger)' },
+    { title: 'تعداد ثبت‌نام‌ها', value: stats.registrations, color: 'var(--color-primary-400)' },
+  ];
 
   return (
     <div style={{ padding: '1.5rem' }}>
       <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, marginBottom: '1.5rem' }}>گزارش‌ها و آمار</h1>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-        {[{ title: 'تعداد هنرجویان', value: stats.students.toLocaleString('fa-IR'), color: 'var(--color-primary-400)' }, { title: 'کلاس‌های فعال', value: stats.classes.toLocaleString('fa-IR'), color: 'var(--color-success)' }, { title: 'درصد حضور', value: `${stats.attendancePct}%`, color: 'var(--color-info)' }, { title: 'درآمد کل', value: `${stats.revenue.toLocaleString('fa-IR')} تومان`, color: 'var(--color-warning)' }].map((c, i) => (
-          <Card key={i} padding="1.25rem" style={{ textAlign: 'center' }}><div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginBottom: '0.5rem' }}>{c.title}</div><div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: c.color }}>{loading ? '...' : c.value}</div></Card>
+        {cards.map((c, i) => (
+          <Card key={i} padding="1.25rem" style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginBottom: '0.5rem' }}>{c.title}</div>
+            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: c.color }}>{loading ? '...' : String(c.value).includes('%') ? c.value : Number(c.value).toLocaleString('fa-IR')}</div>
+          </Card>
         ))}
       </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-        <Card style={{ minHeight: 320 }}><h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>توزیع دانش‌آموزان در کلاس‌ها</h3><EmptyState title="داده‌های نمودار از اطلاعات واقعی محاسبه می‌شود" /></Card>
-        <Card style={{ minHeight: 320 }}><h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>گزارش‌های مالی</h3><EmptyState title="گزارش‌های مالی پس از ثبت پرداخت‌ها نمایش داده می‌شود" /></Card>
+        {/* توزیع دانش‌آموز در کلاس‌ها */}
+        <Card style={{ minHeight: 320 }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>تعداد دانش‌آموز در هر کلاس</h3>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-tertiary)' }}>در حال بارگذاری...</div>
+          ) : classDist.length === 0 ? (
+            <EmptyState title="کلاسی ثبت نشده است" />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {classDist.map((d, i) => (
+                <div key={i}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)', marginBottom: '0.3rem' }}>
+                    <span style={{ color: 'var(--color-text-secondary)' }}>کلاس {d.name}</span>
+                    <span style={{ fontWeight: 600 }}>{d.value} نفر</span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--color-surface)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${d.pct}%`, background: 'var(--color-primary-400)', borderRadius: 4, transition: 'width 0.3s' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* گزارش مالی */}
+        <Card style={{ minHeight: 320 }}>
+          <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>درآمد ماهانه (۶ ماه اخیر)</h3>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-tertiary)' }}>در حال بارگذاری...</div>
+          ) : monthlyIncome.length === 0 ? (
+            <EmptyState title="پرداختی ثبت نشده است" />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {monthlyIncome.map((m, i) => (
+                <div key={i}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)', marginBottom: '0.3rem' }}>
+                    <span style={{ color: 'var(--color-text-secondary)' }}>{m.label}</span>
+                    <span style={{ fontWeight: 600 }}>{m.value.toLocaleString('fa-IR')} تومان</span>
+                  </div>
+                  <div style={{ height: 8, background: 'var(--color-surface)', borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${m.pct}%`, background: 'var(--color-success)', borderRadius: 4, transition: 'width 0.3s' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
       </div>
-      <Card><h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>خلاصه آمار کلی</h3>
+
+      <Card>
+        <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>خلاصه آمار کلی</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-          {[{ l: 'دوره‌ها', v: stats.courses }, { l: 'اساتید', v: stats.teachers }, { l: 'پرداخت‌ها', v: stats.payments }, { l: 'ثبت‌نام‌ها', v: stats.registrations }].map((s, i) => (
-            <div key={i} style={{ padding: '0.75rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}><div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{s.l}</div><div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700 }}>{loading ? '...' : s.v.toLocaleString('fa-IR')}</div></div>
+          {[{ l: 'دوره‌ها', v: stats.courses }, { l: 'اساتید', v: stats.teachers }, { l: 'پرداخت‌های موفق', v: stats.payments }, { l: 'ثبت‌نام‌ها', v: stats.registrations }].map((s2, i) => (
+            <div key={i} style={{ padding: '0.75rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', textAlign: 'center' }}>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{s2.l}</div>
+              <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700 }}>{loading ? '...' : s2.v.toLocaleString('fa-IR')}</div>
+            </div>
           ))}
         </div>
       </Card>
