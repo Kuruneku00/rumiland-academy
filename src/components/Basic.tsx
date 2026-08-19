@@ -64,14 +64,15 @@ export const SearchInput: React.FC<SearchInputProps> = ({ placeholder = 'جست�
 // ================================================================
 // SELECT
 // ================================================================
-interface SelectProps { label?: string; options: Array<{ value: string; label: string }>; value: string; onChange: (v: string) => void; placeholder?: string; className?: string; }
-export const Select: React.FC<SelectProps> = ({ label, options, value, onChange, placeholder, className }) => (
+interface SelectProps { label?: string; options: Array<{ value: string; label: string }>; value: string; onChange: (v: string) => void; placeholder?: string; className?: string; error?: string; disabled?: boolean; }
+export const Select: React.FC<SelectProps> = ({ label, options, value, onChange, placeholder, className, error, disabled }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
     {label && <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)' }}>{label}</label>}
-    <select value={value} onChange={(e) => onChange(e.target.value)} style={{ height: 40, padding: '0 0.75rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-input)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-md)', outline: 'none', cursor: 'pointer', minWidth: 160 }} className={clsx('select', className)}>
+    <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} style={{ height: 40, padding: '0 0.75rem', background: 'var(--color-input)', border: error ? 'var(--border-error)' : 'var(--border-default)', borderRadius: 'var(--radius-input)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-md)', outline: 'none', cursor: disabled ? 'not-allowed' : 'pointer', minWidth: 160, opacity: disabled ? 0.5 : 1 }} className={clsx('select', className)}>
       {placeholder && <option value="">{placeholder}</option>}
       {options.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
     </select>
+    {error && <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>{error}</span>}
   </div>
 );
 

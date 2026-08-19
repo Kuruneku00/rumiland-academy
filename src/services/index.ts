@@ -2,8 +2,9 @@
  * Rumiland Academy — Full Service Layer with resolved lookups
  */
 import { BaseService } from './base';
+import { createIncomeTransactionForPayment, syncTransactionForPayment, removeTransactionForPayment, persistRegistrationFigures, registrationTotal, paidAmountForRegistration, parseInstallmentPlan } from './finance';
 import { db } from '@/db/schema';
-import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
+import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, FinanceTransaction, FinanceCategory, RecurringExpense, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
 import { v4 as uuid } from 'uuid';
 
 // ================================================================
@@ -599,6 +600,9 @@ export class RegistrationService extends BaseService<Registration> {
         };
 
         await db.payments.put(payment);
+
+        // همگام‌سازی با دفتر تراکنش‌های مالی (پرداخت اولیه هنگام ثبت‌نام)
+        await createIncomeTransactionForPayment(payment, { category: 'tuition' });
       }
 
       if (cls.capacity > 0 && existingRegs + 1 >= cls.capacity) {
@@ -746,24 +750,11 @@ export class PaymentService extends BaseService<Payment> {
 
       await db.payments.put(payment);
 
-      const newPaid = currentPaid + amount;
-      const remaining = Math.max(0, expectedTotal - newPaid);
+      // محاسبه مجدد کامل وضعیت مالی ثبت‌نام (تک‌منبع حقیقت)
+      const figures = await persistRegistrationFigures(data.registration_id);
 
-      let newStatus: Registration['payment_status'] = 'pending';
-
-      if (remaining <= 0 && expectedTotal > 0) {
-        newStatus = 'paid';
-      } else if (newPaid > 0) {
-        newStatus = 'partial';
-      }
-
-      await db.registrations.update(data.registration_id, {
-        paid_amount: newPaid,
-        remaining_amount: remaining,
-        total_amount: expectedTotal,
-        payment_status: newStatus,
-        updated_at: now,
-      } as any);
+      // همگام‌سازی با دفتر تراکنش‌های مالی
+      await createIncomeTransactionForPayment(payment, { category: 'tuition' });
 
       return { success: true, data: payment };
     } catch (err: any) {
@@ -788,6 +779,65 @@ export class PaymentService extends BaseService<Payment> {
 
   async getPaymentsByStudent(studentId: string): Promise<Payment[]> {
     return db.payments.where('student_id').equals(studentId).filter((p: any) => !p.deleted_at).toArray();
+  }
+
+  /**
+   * حذف امن یک پرداخت:
+   *   1) حذف نرم پرداخت
+   *   2) حذف تراکنش مالی مرتبط
+   *   3) محاسبه مجدد وضعیت مالی ثبت‌نام
+   */
+  async deletePayment(paymentId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const payment = await db.payments.get(paymentId);
+      if (!payment) return { success: false, error: 'پرداخت یافت نشد' };
+
+      const registrationId = payment.registration_id;
+
+      // حذف نرم پرداخت
+      await db.payments.put({
+        ...payment,
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as Payment);
+
+      // حذف تراکنش مالی مرتبط
+      await removeTransactionForPayment(paymentId);
+
+      // محاسبه مجدد وضعیت مالی ثبت‌نام
+      if (registrationId) {
+        await persistRegistrationFigures(registrationId);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * ویرایش پرداخت با همگام‌سازی تراکنش مالی.
+   */
+  async updatePayment(paymentId: string, data: Partial<Payment>): Promise<{ success: boolean; data?: Payment; error?: string }> {
+    try {
+      const existing = await db.payments.get(paymentId);
+      if (!existing) return { success: false, error: 'پرداخت یافت نشد' };
+
+      const updated = { ...existing, ...data, id: paymentId, updated_at: new Date().toISOString() } as Payment;
+      await db.payments.put(updated);
+
+      // همگام‌سازی تراکنش مالی
+      await syncTransactionForPayment(updated);
+
+      // محاسبه مجدد وضعیت مالی ثبت‌نام
+      if (updated.registration_id) {
+        await persistRegistrationFigures(updated.registration_id);
+      }
+
+      return { success: true, data: updated };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }
 }
 
@@ -850,7 +900,7 @@ export class DashboardService {
       db.students.filter((s: any) => !s.deleted_at).toArray(),
       db.classes.filter((c: any) => !c.deleted_at).toArray(),
       db.teachers.filter((t: any) => !t.deleted_at).toArray(),
-      db.payments.filter((p: any) => !p.deleted_at).toArray(),
+      db.financeTransactions.filter((p: any) => !p.deleted_at && p.type === 'income').toArray(),
     ]);
 
     const now = new Date();
@@ -870,15 +920,13 @@ export class DashboardService {
 
     const monthlyRevenue = payments
       .filter((p: any) =>
-        p.status === 'paid' &&
-        isMonth(p.payment_date, currentMonth, currentYear)
+        isMonth(p.transaction_date, currentMonth, currentYear)
       )
       .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
 
     const previousRevenue = payments
       .filter((p: any) =>
-        p.status === 'paid' &&
-        isMonth(p.payment_date, previous.getMonth(), previous.getFullYear())
+        isMonth(p.transaction_date, previous.getMonth(), previous.getFullYear())
       )
       .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
 
@@ -903,9 +951,14 @@ export class DashboardService {
       isMonth(c.created_at, previous.getMonth(), previous.getFullYear())
     ).length;
 
-    const overdueCount = payments.filter((p: any) =>
-      ['overdue', 'pending', 'partial'].includes(p.status)
-    ).length;
+    // تعداد بدهکاران = ثبت‌نام‌های با مانده بدهی مثبت
+    const regs = await db.registrations.filter((r: any) => !r.deleted_at).toArray();
+    let overdueCount = 0;
+    for (const reg of regs) {
+      const total = registrationTotal(reg);
+      const paid = await paidAmountForRegistration(reg.id);
+      if (paid < total) overdueCount++;
+    }
 
     return {
       totalStudents: students.length,
@@ -953,37 +1006,30 @@ export class DashboardService {
   }
 
   async getFinancialSummary() {
-    const payments = await db.payments
-      .filter((p: any) => !p.deleted_at)
+    const transactions = await db.financeTransactions
+      .filter((t: any) => !t.deleted_at)
       .toArray();
 
-    const paid = payments.filter((p: any) => p.status === 'paid');
-    const pending = payments.filter((p: any) =>
-      ['pending', 'partial'].includes(p.status)
-    );
+    const incomes = transactions.filter((t: any) => t.type === 'income');
+    const expenses = transactions.filter((t: any) => t.type === 'expense');
 
-    const total = paid.reduce(
-      (sum: number, p: any) => sum + Number(p.amount || 0), 0
-    );
-
-    const pendingTotal = pending.reduce(
-      (sum: number, p: any) => sum + Number(p.amount || 0), 0
-    );
+    const total = incomes.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+    const expenseTotal = expenses.reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
 
     return {
       total,
-      pending: pendingTotal,
-      completed: total,
-      average: paid.length ? total / paid.length : 0,
-      count: payments.length,
+      expense: expenseTotal,
+      profit: total - expenseTotal,
+      average: incomes.length ? total / incomes.length : 0,
+      count: transactions.length,
     };
   }
 
   async getRevenueChartData(
     mode: number | 'six_months' | 'weekly' | 'monthly' | 'yearly' = 'six_months'
   ) {
-    const payments = await db.payments
-      .filter((p: any) => !p.deleted_at && p.status === 'paid')
+    const payments = await db.financeTransactions
+      .filter((p: any) => !p.deleted_at && p.type === 'income')
       .toArray();
 
     const now = new Date();
@@ -992,7 +1038,7 @@ export class DashboardService {
       const key = this.dateKey(date);
 
       return payments
-        .filter((p: any) => this.dateKey(new Date(p.payment_date)) === key)
+        .filter((p: any) => this.dateKey(new Date(p.transaction_date)) === key)
         .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
     };
 
@@ -1000,7 +1046,7 @@ export class DashboardService {
       const key = this.monthKey(date);
 
       return payments
-        .filter((p: any) => this.monthKey(new Date(p.payment_date)) === key)
+        .filter((p: any) => this.monthKey(new Date(p.transaction_date)) === key)
         .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
     };
 
@@ -1188,135 +1234,395 @@ export const userManagementService = new UserManagementService();
  * Rumiland Academy — Finance Service
  * ========================================================= */
 
+/* =========================================================
+ * Rumiland Academy — Finance Service (نسخه کامل)
+ * ========================================================= */
+
+const FINANCE_CATEGORY_LABELS: Record<string, string> = {
+  tuition: 'شهریه',
+  registration: 'هزینه ثبت‌نام',
+  salary: 'حقوق مدرس',
+  rent: 'اجاره',
+  utilities: 'قبوض',
+  internet: 'اینترنت',
+  advertising: 'تبلیغات',
+  software: 'نرم‌افزار',
+  equipment: 'تجهیزات',
+  maintenance: 'تعمیرات',
+  transport: 'حمل‌ونقل',
+  other: 'سایر',
+};
+
+export function financeCategoryLabel(cat: string): string {
+  return FINANCE_CATEGORY_LABELS[cat] || cat;
+}
+
+export const FINANCE_EXPENSE_CATEGORIES = [
+  'salary',
+  'rent',
+  'internet',
+  'advertising',
+  'software',
+  'equipment',
+  'maintenance',
+  'transport',
+  'other',
+] as const;
+
+export const FINANCE_INCOME_CATEGORIES = [
+  'tuition',
+  'registration',
+  'other',
+] as const;
+
 export const financeService = {
   async getTransactions() {
     return db.financeTransactions
       .filter((item) => !item.deleted_at)
-      .toArray();
+      .reverse()
+      .sortBy('transaction_date');
   },
 
   async getTransaction(id: string) {
     return db.financeTransactions.get(id);
   },
 
-  async createTransaction(data: Omit<FinanceTransaction, 'id' | 'created_at' | 'updated_at'>) {
+  /**
+   * ثبت تراکنش مالی مستقل (درآمد یا هزینه).
+   * این برای تراکنش‌هایی است که به پرداخت/ثبت‌نام وابسته نیستند،
+   * مثل هزینه اجاره، حقوق، یا درآمد متفرقه.
+   */
+  async createTransaction(data: {
+    type: FinanceTransaction['type'];
+    category: FinanceCategory | string;
+    title: string;
+    amount: number;
+    transaction_date?: string;
+    transaction_date_jalali?: string | null;
+    method?: FinanceTransaction['method'];
+    student_id?: string | null;
+    registration_id?: string | null;
+    payment_id?: string | null;
+    description?: string | null;
+  }) {
     const now = new Date().toISOString();
 
     const transaction: FinanceTransaction = {
-      ...data,
-      id: crypto.randomUUID(),
+      id: uuid(),
+      type: data.type,
+      category: data.category,
+      title: data.title,
+      amount: Number(data.amount || 0),
+      transaction_date: data.transaction_date || now,
+      transaction_date_jalali: data.transaction_date_jalali || null,
+      method: data.method || 'cash',
+      student_id: data.student_id || null,
+      registration_id: data.registration_id || null,
+      payment_id: data.payment_id || null,
+      description: data.description || null,
       created_at: now,
       updated_at: now,
+      deleted_at: null,
     };
 
-    await db.financeTransactions.add(transaction);
+    await db.financeTransactions.put(transaction);
     return transaction;
   },
 
-  async updateTransaction(
-    id: string,
-    data: Partial<FinanceTransaction>
-  ) {
+  async updateTransaction(id: string, data: Partial<FinanceTransaction>) {
     const existing = await db.financeTransactions.get(id);
-
-    if (!existing) {
-      throw new Error('تراکنش مالی پیدا نشد');
-    }
-
-    const updated = {
-      ...existing,
-      ...data,
-      id,
-      updated_at: new Date().toISOString(),
-    };
-
+    if (!existing) throw new Error('تراکنش مالی پیدا نشد');
+    const updated = { ...existing, ...data, id, updated_at: new Date().toISOString() };
     await db.financeTransactions.put(updated);
     return updated;
   },
 
   async deleteTransaction(id: string) {
     const existing = await db.financeTransactions.get(id);
-
     if (!existing) return;
-
     await db.financeTransactions.put({
       ...existing,
       deleted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    });
+    } as FinanceTransaction);
   },
 
+  // ------------------------------------------------------------
+  // RECURRING EXPENSES
+  // ------------------------------------------------------------
   async getRecurringExpenses() {
-    return db.recurringExpenses
-      .filter((item) => !item.deleted_at)
-      .toArray();
+    return db.recurringExpenses.filter((item) => !item.deleted_at).toArray();
   },
-
-  async createRecurringExpense(
-    data: Omit<RecurringExpense, 'id' | 'created_at' | 'updated_at'>
-  ) {
+  async createRecurringExpense(data: Omit<RecurringExpense, 'id' | 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-
-    const expense: RecurringExpense = {
-      ...data,
-      id: crypto.randomUUID(),
-      created_at: now,
-      updated_at: now,
-    };
-
+    const expense: RecurringExpense = { ...data, id: uuid(), created_at: now, updated_at: now };
     await db.recurringExpenses.add(expense);
     return expense;
   },
-
-  async updateRecurringExpense(
-    id: string,
-    data: Partial<RecurringExpense>
-  ) {
+  async updateRecurringExpense(id: string, data: Partial<RecurringExpense>) {
     const existing = await db.recurringExpenses.get(id);
-
-    if (!existing) {
-      throw new Error('هزینه ثابت پیدا نشد');
-    }
-
-    const updated = {
-      ...existing,
-      ...data,
-      id,
-      updated_at: new Date().toISOString(),
-    };
-
+    if (!existing) throw new Error('هزینه ثابت پیدا نشد');
+    const updated = { ...existing, ...data, id, updated_at: new Date().toISOString() };
     await db.recurringExpenses.put(updated);
     return updated;
   },
-
   async deleteRecurringExpense(id: string) {
     const existing = await db.recurringExpenses.get(id);
-
     if (!existing) return;
-
     await db.recurringExpenses.put({
       ...existing,
       deleted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    });
+    } as RecurringExpense);
   },
 
+  // ------------------------------------------------------------
+  // SUMMARY & DASHBOARD (داشبورد مالی)
+  // ------------------------------------------------------------
   async getSummary() {
-    const transactions = await this.getTransactions();
+    const transactions = await db.financeTransactions
+      .filter((t) => !t.deleted_at)
+      .toArray();
 
     const income = transactions
-      .filter((item) => item.type === 'income')
-      .reduce((sum, item) => sum + item.amount, 0);
+      .filter((t) => t.type === 'income')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     const expense = transactions
-      .filter((item) => item.type === 'expense')
-      .reduce((sum, item) => sum + item.amount, 0);
+      .filter((t) => t.type === 'expense')
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
     return {
       income,
       expense,
       profit: income - expense,
       transactionCount: transactions.length,
+    };
+  },
+
+  /**
+   * داشبورد مالی کامل — تمام شاخص‌های موردنیاز MASTER PLAN.
+   */
+  async getFinancialDashboard() {
+    const now = new Date();
+    const todayKey = now.toISOString().split('T')[0].slice(0, 10);
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const yearKey = String(now.getFullYear());
+
+    const transactions = await db.financeTransactions
+      .filter((t) => !t.deleted_at)
+      .toArray();
+
+    const isDay = (d: string) => (d || '').slice(0, 10) === todayKey;
+    const isMonth = (d: string) => (d || '').slice(0, 7) === monthKey;
+    const isYear = (d: string) => (d || '').slice(0, 4) === yearKey;
+
+    const incomes = transactions.filter((t) => t.type === 'income');
+    const expenses = transactions.filter((t) => t.type === 'expense');
+
+    const sum = (arr: FinanceTransaction[]) =>
+      arr.reduce((s, t) => s + Number(t.amount || 0), 0);
+
+    const totalIncome = sum(incomes);
+    const totalExpense = sum(expenses);
+    const incomeToday = sum(incomes.filter((t) => isDay(t.transaction_date)));
+    const incomeThisMonth = sum(incomes.filter((t) => isMonth(t.transaction_date)));
+    const incomeThisYear = sum(incomes.filter((t) => isYear(t.transaction_date)));
+    const expenseThisMonth = sum(expenses.filter((t) => isMonth(t.transaction_date)));
+
+    // بدهی دانش‌آموزان
+    const registrations = await db.registrations
+      .filter((r) => !r.deleted_at)
+      .toArray();
+
+    let totalDebt = 0;
+    let debtorCount = 0;
+    for (const reg of registrations) {
+      const paid = await paidAmountForRegistration(reg.id);
+      const total = registrationTotal(reg);
+      const remaining = Math.max(0, total - paid);
+      if (remaining > 0) {
+        totalDebt += remaining;
+        debtorCount++;
+      }
+    }
+
+    // پرداخت‌های امروز
+    const paymentsToday = await db.payments
+      .filter((p) => !p.deleted_at && p.status === 'paid' && isDay(p.payment_date))
+      .count();
+
+    // اقساط سررسیدشده و نزدیک به سررسید
+    const today = todayKey;
+    const nextWeek = new Date(now);
+    nextWeek.setDate(now.getDate() + 7);
+    const nextWeekKey = nextWeek.toISOString().split('T')[0];
+
+    let overdueInstallments = 0;
+    let upcomingInstallments = 0;
+
+    for (const reg of registrations) {
+      const plan = parseInstallmentPlan(reg);
+      for (const item of plan) {
+        if (!item.due_date) continue;
+        // قسطی که هنوز تسویه نشده
+        const paidForInstallment = await db.payments
+          .where('registration_id')
+          .equals(reg.id)
+          .filter(
+            (p) =>
+              !p.deleted_at &&
+              p.status === 'paid' &&
+              Number(p.installment_number) === Number(item.number)
+          )
+          .toArray();
+        const installmentPaid = paidForInstallment.reduce(
+          (s, p) => s + Number(p.amount || 0),
+          0
+        );
+        if (installmentPaid >= Number(item.amount)) continue;
+
+        if (item.due_date < today) overdueInstallments++;
+        else if (item.due_date <= nextWeekKey) upcomingInstallments++;
+      }
+    }
+
+    return {
+      totalIncome,
+      incomeToday,
+      incomeThisMonth,
+      incomeThisYear,
+      totalExpense,
+      expenseThisMonth,
+      netProfit: totalIncome - totalExpense,
+      profitThisMonth: incomeThisMonth - expenseThisMonth,
+      totalDebt,
+      debtorCount,
+      paymentsToday,
+      overdueInstallments,
+      upcomingInstallments,
+    };
+  },
+
+  // ------------------------------------------------------------
+  // DEBTORS (بدهکاران)
+  // ------------------------------------------------------------
+  async getDebtors() {
+    const registrations = await db.registrations
+      .filter((r) => !r.deleted_at)
+      .toArray();
+
+    const result: Array<{
+      registration: Registration;
+      studentName: string;
+      courseTitle: string;
+      className: string;
+      total: number;
+      paid: number;
+      remaining: number;
+      installmentCount: number;
+      nextInstallment: { number: number; amount: number; due_date?: string; title?: string } | null;
+    }> = [];
+
+    for (const reg of registrations) {
+      const paid = await paidAmountForRegistration(reg.id);
+      const total = registrationTotal(reg);
+      const remaining = Math.max(0, total - paid);
+      if (remaining <= 0) continue; // فقط بدهکاران
+
+      const plan = parseInstallmentPlan(reg);
+      // قسط بعدی (نخستین قسط ناتمام)
+      let nextInstallment: { number: number; amount: number; due_date?: string; title?: string } | null = null;
+      for (const item of plan) {
+        const paidForInstallment = await db.payments
+          .where('registration_id')
+          .equals(reg.id)
+          .filter(
+            (p) =>
+              !p.deleted_at &&
+              p.status === 'paid' &&
+              Number(p.installment_number) === Number(item.number)
+          )
+          .toArray();
+        const installmentPaid = paidForInstallment.reduce(
+          (s, p) => s + Number(p.amount || 0),
+          0
+        );
+        if (installmentPaid >= Number(item.amount)) continue;
+        nextInstallment = item;
+        break;
+      }
+
+      result.push({
+        registration: reg,
+        studentName: await resolveStudentName(reg.student_id),
+        courseTitle: await resolveCourseTitle(reg.course_id),
+        className: await resolveClassName(reg.class_id),
+        total,
+        paid,
+        remaining,
+        installmentCount: plan.length,
+        nextInstallment,
+      });
+    }
+
+    return result.sort((a, b) => b.remaining - a.remaining);
+  },
+
+  // ------------------------------------------------------------
+  // REPORTS (گزارش‌های مالی)
+  // ------------------------------------------------------------
+  /**
+   * گزارش مالی برای بازه زمانی مشخص.
+   * period: 'today' | 'week' | 'month' | 'year' | {from,to}
+   */
+  async getReport(period: 'today' | 'week' | 'month' | 'year' | 'all' = 'month') {
+    const transactions = await db.financeTransactions
+      .filter((t) => !t.deleted_at)
+      .toArray();
+
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfDay.getDate() - ((startOfDay.getDay() + 1) % 7));
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    let start: Date | null = null;
+    if (period === 'today') start = startOfDay;
+    else if (period === 'week') start = startOfWeek;
+    else if (period === 'month') start = startOfMonth;
+    else if (period === 'year') start = startOfYear;
+    else start = null;
+
+    const filtered = start
+      ? transactions.filter((t) => new Date(t.transaction_date) >= start)
+      : transactions;
+
+    const byType = (type: FinanceTransaction['type']) =>
+      filtered.filter((t) => t.type === type);
+
+    const byCategory = (type: FinanceTransaction['type']) => {
+      const map: Record<string, number> = {};
+      for (const t of byType(type)) {
+        map[t.category] = (map[t.category] || 0) + Number(t.amount || 0);
+      }
+      return map;
+    };
+
+    const income = byType('income').reduce((s, t) => s + Number(t.amount || 0), 0);
+    const expense = byType('expense').reduce((s, t) => s + Number(t.amount || 0), 0);
+
+    return {
+      period,
+      income,
+      expense,
+      profit: income - expense,
+      incomeCount: byType('income').length,
+      expenseCount: byType('expense').length,
+      incomeByCategory: byCategory('income'),
+      expenseByCategory: byCategory('expense'),
+      transactions: filtered,
     };
   },
 };

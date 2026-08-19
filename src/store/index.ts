@@ -312,3 +312,35 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   setSessions: (sessions) => set({ sessions }),
   setLoading: (isLoading) => set({ isLoading }),
 }));
+
+// ================================================================
+// FINANCE STATE
+// ================================================================
+
+interface FinanceFilters {
+  type: 'all' | 'income' | 'expense';
+  category: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+  search: string;
+}
+
+interface FinanceState {
+  activeTab: 'dashboard' | 'payments' | 'income' | 'expenses' | 'debtors' | 'transactions' | 'reports';
+  filters: FinanceFilters;
+  setActiveTab: (tab: FinanceState['activeTab']) => void;
+  setFinanceFilters: (filters: Partial<FinanceFilters>) => void;
+  resetFinanceFilters: () => void;
+}
+
+const defaultFinanceFilters: FinanceFilters = {
+  type: 'all', category: null, dateFrom: null, dateTo: null, search: '',
+};
+
+export const useFinanceStore = create<FinanceState>((set) => ({
+  activeTab: 'dashboard',
+  filters: { ...defaultFinanceFilters },
+  setActiveTab: (activeTab) => set({ activeTab }),
+  setFinanceFilters: (filters) => set((s) => ({ filters: { ...s.filters, ...filters } })),
+  resetFinanceFilters: () => set({ filters: { ...defaultFinanceFilters } }),
+}));
