@@ -29,7 +29,6 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 if ! command_exists node; then
   echo "[1/5] Node.js نصب نیست. در حال نصب..."
-  # نصب Node.js 20 LTS از NodeSource
   if command_exists apt-get; then
     sudo apt-get update -y
     sudo apt-get install -y curl ca-certificates
@@ -51,7 +50,6 @@ fi
 
 echo "[2/5] بارگیری کد برنامه از GitHub..."
 
-# اگر پوشه وجود دارد فقط pull کن، در غیر این صورت clone کن
 if [ -d "$APP_DIR" ]; then
   cd "$APP_DIR"
   git fetch origin
@@ -64,23 +62,45 @@ fi
 echo "[3/5] نصب وابستگی‌ها (npm install)..."
 npm install --no-audit --no-fund
 
-echo "[4/5] ساخت برنامه (build)..."
+# ---------- 2. Download Electron binary (before first run) ----------
+echo "[4/5] دانلود باینری Electron (فقط بار اول، ~۱۲۰ مگابایت)..."
+ELECTRON_MIRROR="${ELECTRON_MIRROR:-}"
+if [ -n "$ELECTRON_MIRROR" ]; then
+  export ELECTRON_MIRROR
+fi
+
+ELECTRON_OK=0
+for i in 1 2 3 4 5; do
+  if node node_modules/electron/install.js 2>/dev/null; then
+    ELECTRON_OK=1
+    break
+  fi
+  echo "   تلاش $i برای دانلود Electron ناموفق بود، دوباره تلاش می‌شود..."
+  sleep 3
+done
+
+if [ "$ELECTRON_OK" -ne 1 ]; then
+  echo "   ⚠️ دانلود خودکار Electron کامل نشد."
+  echo "   اگر اینترنتت کند است، با متغیر ELECTRON_MIRROR دوباره امتحان کن:"
+  echo "     ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/' bash install.sh"
+  echo "   (این هم اکنون تلاش می‌کند هنگام اجرا دانلود شود)"
+fi
+
+echo "[5/5] ساخت برنامه (build)..."
 npm run build
 node scripts/build-electron.mjs
 
-# ---------- 2. Create launcher ----------
-echo "[5/5] ساخت دستور اجرا..."
+# ---------- 3. Create launcher ----------
+echo "ساخت دستور اجرا..."
 
-# ساخت سیم‌لینک سراسری 'rumiland'
 LAUNCHER="$HOME/.rumiland-academy-app/launch.sh"
 cat > "$LAUNCHER" << 'LAUNCHER_EOF'
 #!/usr/bin/env bash
 cd "$HOME/.rumiland-academy-app"
-exec npx electron . 2>/dev/null || exec node_modules/.bin/electron .
+exec node_modules/.bin/electron . 2>/dev/null || exec npx electron .
 LAUNCHER_EOF
 chmod +x "$LAUNCHER"
 
-# قرار دادن در PATH کاربر
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
 ln -sf "$LAUNCHER" "$BIN_DIR/rumiland"
@@ -102,7 +122,6 @@ echo "       ~/.rumiland-academy/backups/"
 echo ""
 echo "========================================================"
 
-# چک PATH
 if ! echo "$PATH" | grep -q "$BIN_DIR"; then
   echo ""
   echo "⚠️  مسیر $BIN_DIR در PATH نیست."
@@ -112,7 +131,7 @@ if ! echo "$PATH" | grep -q "$BIN_DIR"; then
   echo "     ~/.local/bin/rumiland"
 fi
 
-# ---------- 3. Run ----------
+# ---------- 4. Run ----------
 echo ""
 echo "در حال اجرای برنامه..."
 "$BIN_DIR/rumiland" || "$LAUNCHER"
