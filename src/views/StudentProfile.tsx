@@ -122,7 +122,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
               <InfoRow label="شماره تماس" value={student.phone} />
               <InfoRow label="سن" value={student.birth_date_jalali ? '--' : 'نامشخص'} />
               <InfoRow label="آدرس" value={student.address || '--'} />
-              <InfoRow label="تاریخ ثبت‌نام" value={student.registered_at ? new Date(student.registered_at).toLocaleDateString('fa-IR') : '--'} />
+              <InfoRow label="تاریخ ثبت‌نام" value={student.registered_at ? new Date(student.registered_at).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }) : '--'} />
               <InfoRow label="یادداشت‌ها" value={student.notes || '--'} />
             </div>
           )}
@@ -193,7 +193,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
                   <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0', borderBottom: 'var(--border-thin)' }}>
                     <div>
                       <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>{p.amount.toLocaleString('fa-IR')} تومان</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{new Date(p.payment_date).toLocaleDateString('fa-IR')}</div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{new Date(p.payment_date).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' })}</div>
                     </div>
                     <Badge variant={p.status === 'paid' ? 'success' : p.status === 'overdue' ? 'danger' : 'warning'}>
                       {p.status === 'paid' ? 'پرداخت شده' : p.status === 'overdue' ? 'معوق' : 'در انتظار'}

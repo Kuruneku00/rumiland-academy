@@ -68,7 +68,7 @@ export const CalendarPage: React.FC = () => {
     const end = new Date(currentWeekStart);
     end.setDate(end.getDate() + 6);
     try {
-      return `${start.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric' })} - ${end.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric', year: 'numeric' })}`;
+      return `${start.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric', timeZone: 'Asia/Tehran' })} - ${end.toLocaleDateString('fa-IR', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'Asia/Tehran' })}`;
     } catch {
       return `${start.getDate()} - ${end.getDate()}`;
     }
@@ -159,7 +159,7 @@ export const CalendarPage: React.FC = () => {
             <Card key={idx} padding="0.75rem" style={{ minHeight: 300, background: isToday ? 'var(--color-sidebar-active)' : isFriday ? 'var(--color-bg-tertiary)' : undefined, borderColor: isToday ? 'var(--color-primary-600)' : undefined }}>
               <div style={{ textAlign: 'center', marginBottom: '0.75rem', paddingBottom: '0.5rem', borderBottom: 'var(--border-thin)' }}>
                 <div style={{ fontSize: 'var(--font-size-xs)', color: isFriday ? 'var(--color-danger)' : 'var(--color-text-tertiary)', fontWeight: 500 }}>{WEEKDAYS_FA[idx]}</div>
-                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: isToday ? 700 : 500, marginTop: '0.25rem' }}>{day.toLocaleDateString('fa-IR', { day: 'numeric' })}</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: isToday ? 700 : 500, marginTop: '0.25rem' }}>{day.toLocaleDateString('fa-IR', { day: 'numeric', timeZone: 'Asia/Tehran' })}</div>
               </div>
               {daySessions.length === 0 ? (
                 <div style={{ padding: '1rem 0', textAlign: 'center', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>کلاسی در این بازه زمانی ثبت نشده است</div>

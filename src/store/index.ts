@@ -286,9 +286,9 @@ interface CalendarState {
 
 function getWeekStart(date: Date): Date {
   const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
+  // شروع هفته از «شنبه» (جمعه = getDay 5، شنبه = getDay 6، یکشنبه = getDay 0)
+  const daysSinceSaturday = (d.getDay() + 1) % 7;
+  d.setDate(d.getDate() - daysSinceSaturday);
   d.setHours(0, 0, 0, 0);
   return d;
 }

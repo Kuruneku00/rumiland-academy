@@ -20,7 +20,7 @@ interface Installment { number: number; amount: number; due_date?: string; title
 interface PaymentRow { payment: Payment; studentName: string; className: string; }
 
 const money = (value: number) => `${Math.max(0, Number(value || 0)).toLocaleString('fa-IR')} تومان`;
-const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR'); } catch { return d; } };
+const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }); } catch { return d; } };
 const getRegistrationTotal = (r: RegistrationOption) => Number(r.total_amount ?? (Number(r.tuition_fee || 0) + Number(r.registration_fee || 0) - Number(r.discount || 0)));
 const getPlan = (r: RegistrationOption): Installment[] => {
   if (!r.installment_plan_json) {

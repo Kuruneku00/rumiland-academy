@@ -255,9 +255,9 @@ const Toolbar: React.FC<ToolbarProps> = ({ onSearch }) => {
 
 function formatJalaliDate(date: Date): string {
   try {
-    return date.toLocaleDateString('fa-IR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    return date.toLocaleDateString('fa-IR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Tehran' });
   } catch {
-    return date.toLocaleDateString('fa-IR');
+    return date.toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' });
   }
 }
 
