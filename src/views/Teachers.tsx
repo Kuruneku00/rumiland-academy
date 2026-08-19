@@ -20,6 +20,8 @@ export const TeachersPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [viewing, setViewing] = useState<Teacher | null>(null);
 
   useEffect(() => { loadTeachers(); }, [page, search]);
 
@@ -48,6 +50,7 @@ export const TeachersPage: React.FC = () => {
     { key: 'specialty', title: 'تخصص', render: (t) => t.specialty || '--' },
     { key: 'status', title: 'وضعیت', render: (t) => <Badge variant={t.status === 'active' ? 'success' : 'neutral'}>{t.status === 'active' ? 'فعال' : 'غیرفعال'}</Badge> },
     { key: 'actions', title: 'عملیات', render: (t) => <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <button onClick={(e) => { e.stopPropagation(); setViewing(t); setShowDetails(true); }} style={{ color: 'var(--color-accent-400)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-sm)' }}>جزئیات</button>
       <button onClick={(e) => { e.stopPropagation(); setEditing(t); setForm({ first_name: t.first_name, last_name: t.last_name, national_id: t.national_id, phone: t.phone, email: t.email || '', specialty: t.specialty || '', bio: t.bio || '', status: t.status }); setShowForm(true); }} style={{ color: 'var(--color-primary-400)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-sm)' }}>ویرایش</button>
       <button onClick={(e) => { e.stopPropagation(); setDeleting(t); setShowDelete(true); }} style={{ color: 'var(--color-danger)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-sm)' }}>حذف</button>
     </div> },
@@ -91,6 +94,27 @@ export const TeachersPage: React.FC = () => {
         {TeacherForm()}
       </Modal>
 
+      <Modal isOpen={showDetails} onClose={() => { setShowDetails(false); setViewing(null); }} title="جزئیات استاد" size="md"
+        footer={<Button variant="secondary" onClick={() => { setShowDetails(false); setViewing(null); }}>بستن</Button>}
+      >
+        {viewing && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <Detail label="نام" value={`${viewing.first_name} ${viewing.last_name}`} />
+              <Detail label="کد ملی" value={viewing.national_id || '--'} />
+              <Detail label="شماره تماس" value={viewing.phone || '--'} />
+              <Detail label="ایمیل" value={viewing.email || '--'} />
+              <Detail label="تخصص" value={viewing.specialty || '--'} />
+              <Detail label="وضعیت" value={viewing.status === 'active' ? 'فعال' : 'غیرفعال'} />
+            </div>
+            <div>
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: '0.25rem' }}>بیوگرافی</div>
+              <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', lineHeight: 1.7, background: 'var(--color-surface)', padding: '0.75rem', borderRadius: 'var(--radius-md)' }}>{viewing.bio || '—'}</div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal isOpen={showDelete} onClose={() => setShowDelete(false)} title="حذف استاد" size="sm"
         footer={<><Button variant="secondary" onClick={() => setShowDelete(false)}>انصراف</Button><Button variant="danger" onClick={handleDelete}>حذف</Button></>}
       >
@@ -101,3 +125,10 @@ export const TeachersPage: React.FC = () => {
 };
 
 function AddIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>; }
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div style={{ padding: '0.6rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }}>
+    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: '0.25rem' }}>{label}</div>
+    <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>{value}</div>
+  </div>;
+}

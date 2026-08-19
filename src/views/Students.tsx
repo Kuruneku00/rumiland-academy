@@ -22,6 +22,9 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onViewProfile }) => 
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
 
+  // Enrichment: class names + payment status per student
+  const [studentMeta, setStudentMeta] = useState<Record<string, { classNames: string[]; paymentStatus: 'paid' | 'partial' | 'pending' | 'none' }>>({});
+
   // Form state
   const [formData, setFormData] = useState<Partial<Student>>({});
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -52,6 +55,27 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onViewProfile }) => 
 
     useStudentStore.getState().setStudents(result.data, result.total);
     useStudentStore.getState().setLoading(false);
+    loadStudentMeta(result.data);
+  };
+
+  const loadStudentMeta = async (studentList: Student[]) => {
+    const meta: Record<string, { classNames: string[]; paymentStatus: 'paid' | 'partial' | 'pending' | 'none' }> = {};
+    await Promise.all(studentList.map(async (st) => {
+      const [classes, payments] = await Promise.all([
+        studentService.getStudentClasses(st.id),
+        studentService.getStudentPayments(st.id),
+      ]);
+      const classNames = classes.map((c: any) => `${c.course?.title || ''} - ${c.class?.code || ''}`).filter(Boolean);
+      const total = classes.reduce((sum: number, c: any) => sum + (Number(c.registration.total_amount) || 0), 0);
+      const paid = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      let paymentStatus: any = 'none';
+      if (classes.length === 0) paymentStatus = 'none';
+      else if (total > 0 && paid >= total) paymentStatus = 'paid';
+      else if (paid > 0) paymentStatus = 'partial';
+      else paymentStatus = 'pending';
+      meta[st.id] = { classNames, paymentStatus };
+    }));
+    setStudentMeta(meta);
   };
 
   const resetForm = () => {
@@ -117,6 +141,10 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onViewProfile }) => 
   };
 
   const getPaymentBadge = (student: Student) => {
+    const status = studentMeta[student.id]?.paymentStatus;
+    if (status === 'paid') return <Badge variant="success">پرداخت شده</Badge>;
+    if (status === 'partial') return <Badge variant="info">پرداخت ناقص</Badge>;
+    if (status === 'pending') return <Badge variant="warning">در انتظار</Badge>;
     return <Badge variant="neutral">نامشخص</Badge>;
   };
 
@@ -125,7 +153,11 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onViewProfile }) => 
     { key: 'name', title: 'نام و نام خانوادگی', sortable: true, render: (s) => <span style={{ fontWeight: 500 }}>{s.first_name} {s.last_name}</span> },
     { key: 'national_id', title: 'کد ملی', sortable: true },
     { key: 'phone', title: 'شماره تماس', sortable: true },
-    { key: 'classes', title: 'کلاس‌ها', render: () => <Badge variant="neutral" size="sm">فاقد کلاس</Badge> },
+    { key: 'classes', title: 'کلاس‌ها', render: (s) => {
+        const names = studentMeta[s.id]?.classNames || [];
+        if (names.length === 0) return <Badge variant="neutral" size="sm">فاقد کلاس</Badge>;
+        return <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{names.join('، ')}</span>;
+      } },
     { key: 'payment_status', title: 'وضعیت پرداخت', render: (s) => getPaymentBadge(s) },
     {
       key: 'actions', title: 'عملیات', render: (s) => (

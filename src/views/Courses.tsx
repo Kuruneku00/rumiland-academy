@@ -281,7 +281,7 @@ export const CoursesPage: React.FC = () => {
         <Select label="وضعیت" options={statusOptions} value={courseForm.status} onChange={(v) => setCourseForm({ ...courseForm, status: v as any })} />
         <Input label="مدت (جلسات)" type="number" value={String(courseForm.duration_sessions)} onChange={(e) => setCourseForm({ ...courseForm, duration_sessions: Number(e.target.value) })} />
         <Input label="شهریه (تومان)" type="number" value={String(courseForm.tuition_fee)} onChange={(e) => setCourseForm({ ...courseForm, tuition_fee: Number(e.target.value) })} />
-        <Input label="هزینه ثبت‌نام (تومان)" type="number" value={String(courseForm.registration_fee)} onChange={(e) => setCourseForm({ ...courseForm, registration_fee: Number(e.target.value) })} />
+
         <Input label="دسته‌بندی" value={courseForm.category} onChange={(e) => setCourseForm({ ...courseForm, category: e.target.value })} />
         <Input label="مقطع" value={courseForm.level} onChange={(e) => setCourseForm({ ...courseForm, level: e.target.value })} />
       </div>
@@ -540,7 +540,7 @@ export const CoursesPage: React.FC = () => {
               <InfoRow label="مدت هر جلسه" value={`${selectedCourse.session_duration_minutes} دقیقه`} />
               <InfoRow label="دسته‌بندی" value={selectedCourse.category || '--'} />
               <InfoRow label="مقطع" value={selectedCourse.level || '--'} />
-              <InfoRow label="هزینه ثبت‌نام" value={selectedCourse.registration_fee ? `${selectedCourse.registration_fee.toLocaleString('fa-IR')} تومان` : '--'} />
+
             </div>
             {selectedCourse.description && <p style={{ marginTop: '1rem', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', lineHeight: 1.7 }}>{selectedCourse.description}</p>}
           </Card>
