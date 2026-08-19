@@ -448,7 +448,7 @@ export class RegistrationService extends BaseService<Registration> {
     registration_fee?: number;
     tuition_fee?: number;
     discount?: number;
-    installments?: 1 | 2;
+    installments?: number;
     installment_plan?: Array<{
       number: number;
       amount: number;
@@ -487,11 +487,19 @@ export class RegistrationService extends BaseService<Registration> {
       const tuition = Math.max(0, Number(data.tuition_fee || 0));
       const registrationFee = Math.max(0, Number(data.registration_fee || 0));
       const discount = Math.max(0, Number(data.discount || 0));
-      const totalAmount = Math.max(0, tuition + registrationFee - discount);
-
-      const installments = data.installments === 2 ? 2 : 1;
 
       let plan = data.installment_plan || [];
+
+      // اگر برنامه اقساط صریح داده شده (مثلاً شهریه ماهانه)، مجموع مبلغ از خود اقساط محاسبه می‌شود،
+      // وگرنه از شهریه دوره + هزینه ثبت‌نام − تخفیف.
+      const hasExplicitPlan = plan.length > 0;
+      const totalAmount = hasExplicitPlan
+        ? plan.reduce((sum, item) => sum + Math.max(0, Number(item.amount || 0)), 0)
+        : Math.max(0, tuition + registrationFee - discount);
+
+      const installments = hasExplicitPlan
+        ? plan.length
+        : (data.installments === 2 ? 2 : 1);
 
       if (!plan.length) {
         if (installments === 1) {
@@ -522,7 +530,9 @@ export class RegistrationService extends BaseService<Registration> {
 
       const planTotal = plan.reduce((sum, item) => sum + Math.max(0, Number(item.amount || 0)), 0);
 
-      if (planTotal !== totalAmount) {
+      // این اعتبارسنجی فقط وقتی معنا دارد که برنامه اقساط را خود سیستم ساخته باشد؛
+      // وقتی کاربر صریحاً اقساط (مثلاً ماهانه) داده، totalAmount خودش از همان اقساط است.
+      if (!hasExplicitPlan && planTotal !== totalAmount) {
         return {
           success: false,
           error: `مجموع اقساط باید دقیقاً ${totalAmount.toLocaleString('fa-IR')} تومان باشد`
