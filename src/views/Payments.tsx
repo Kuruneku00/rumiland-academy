@@ -22,6 +22,8 @@ interface Installment { number: number; amount: number; due_date?: string; title
 interface PaymentRow { payment: Payment; studentName: string; className: string; }
 
 const money = (value: number) => `${Math.max(0, Number(value || 0)).toLocaleString('fa-IR')} تومان`;
+// برای نمایش مانده‌ی خالص که می‌تواند منفی باشد
+const moneySigned = (value: number) => `${(value < 0 ? '−' : '') + Math.abs(Number(value || 0)).toLocaleString('fa-IR')} تومان`;
 const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }); } catch { return d; } };
 const getRegistrationTotal = (r: RegistrationOption) => Math.max(0, (Number(r.total_amount) > 0 ? Number(r.total_amount) : Number(r.tuition_fee || 0) + Number(r.registration_fee || 0)) - Number(r.discount || 0));
 const getFirstInstallmentAmount = (r: RegistrationOption): number => {
@@ -688,6 +690,7 @@ function IncomeTab() {
 // ================================================================
 function ExpensesTab() {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  const [totalIncomeRaw, setTotalIncomeRaw] = useState(0);
   const [recurring, setRecurring] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -695,7 +698,7 @@ function ExpensesTab() {
 
   // هزینه ماهانه (recurring)
   const [showRecurringModal, setShowRecurringModal] = useState(false);
-  const [recurringForm, setRecurringForm] = useState({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '' });
+  const [recurringForm, setRecurringForm] = useState({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium' as 'high' | 'medium' | 'low' });
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
 
@@ -704,6 +707,7 @@ function ExpensesTab() {
     try {
       const txs = await financeService.getTransactions();
       setTransactions(txs.filter((t) => t.type === 'expense'));
+      setTotalIncomeRaw(txs.filter((t) => t.type === 'income').reduce((s, t) => s + Number(t.amount || 0), 0));
       setRecurring(await financeService.getUpcomingRecurringExpenses());
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -712,6 +716,7 @@ function ExpensesTab() {
 
   const total = transactions.reduce((s, t) => s + Number(t.amount || 0), 0);
   const recurringTotal = recurring.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const balance = totalIncomeRaw - total;
 
   const handleDelete = async () => {
     if (!deleting) return;
@@ -736,9 +741,10 @@ function ExpensesTab() {
         method: recurringForm.method as any,
         description: recurringForm.description || null,
         is_active: true,
+        priority: recurringForm.priority,
       } as any);
       setShowRecurringModal(false);
-      setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '' });
+      setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium' });
       await load();
       // یادآوری فوری هم بررسی شود
       await financeService.generateRecurringReminders(3);
@@ -761,6 +767,12 @@ function ExpensesTab() {
     await load();
   };
 
+  // تغییر اولویت هزینه ماهانه
+  const setRecurringPriority = async (id: string, priority: 'high' | 'medium' | 'low') => {
+    await financeService.updateRecurringExpense(id, { priority } as any);
+    await load();
+  };
+
   const columns: Column<FinanceTransaction>[] = [
     { key: 'date', title: 'تاریخ', render: (t) => t.transaction_date_jalali || formatDate(t.transaction_date) },
     { key: 'title', title: 'عنوان', render: (t) => <span style={{ fontWeight: 600 }}>{t.title}</span> },
@@ -774,7 +786,9 @@ function ExpensesTab() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <SummaryBox title="درآمد کل" value={money(totalIncomeRaw)} color="var(--color-success)" />
           <SummaryBox title="مجموع هزینه‌ها" value={money(total)} color="var(--color-danger)" />
+          <SummaryBox title="مانده" value={moneySigned(balance)} color={balance >= 0 ? 'var(--color-success)' : 'var(--color-danger)'} />
           <SummaryBox title="جمع هزینه‌های ماهانه" value={money(recurringTotal)} color="var(--color-warning)" />
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -797,10 +811,19 @@ function ExpensesTab() {
               const d = r.days_until_due;
               const paidLabel = paidThroughLabel(r.paid_through);
               const dueText = d <= 0 ? 'موعد امروز است!' : `${d.toLocaleString('fa-IR')} روز مانده`;
+              const prio = (r.priority || 'medium') as 'high' | 'medium' | 'low';
+              const prioMeta: Record<string, { label: string; color: string; bg: string }> = {
+                high: { label: 'اولویت بالا', color: '#c0392b', bg: '#c0392b18' },
+                medium: { label: 'اولویت متوسط', color: '#e67e22', bg: '#e67e2218' },
+                low: { label: 'اولویت پایین', color: 'var(--color-text-muted)', bg: 'var(--color-bg-tertiary)' },
+              };
               return (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: r.priority === 'high' ? '1px solid #c0392b' : 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '160px' }}>
-                    <div style={{ fontWeight: 600 }}>{r.title}</div>
+                    <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {r.title}
+                      <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, padding: '0.125rem 0.5rem', borderRadius: 'var(--radius-full)', background: prioMeta[prio].bg, color: prioMeta[prio].color, whiteSpace: 'nowrap' }}>{prioMeta[prio].label}</span>
+                    </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · روز {Number(r.due_day).toLocaleString('fa-IR')} هر ماه · موعد بعدی: {r.due_label} · {METHOD_LABELS[r.method] || r.method}{paidLabel ? ` · پرداخت شده تا: ${paidLabel}` : ''}</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
@@ -808,6 +831,11 @@ function ExpensesTab() {
                     <Badge variant={r.paid_through ? 'success' : d <= 0 ? 'danger' : d <= 3 ? 'warning' : 'success'}>{r.paid_through ? 'این ماه ✓' : dueText}</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <select value={prio} onChange={(e) => setRecurringPriority(r.id, e.target.value as 'high' | 'medium' | 'low')} title="اولویت" style={{ height: 30, padding: '0 0.4rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', outline: 'none', cursor: 'pointer' }}>
+                      <option value="high">بالا</option>
+                      <option value="medium">متوسط</option>
+                      <option value="low">پایین</option>
+                    </select>
                     <button onClick={() => payEarlyRecurring(r.id)} title="هزینه‌ی این ماه را الان پرداخت کردم" style={{ background: 'var(--color-success-light)', border: '1px solid var(--color-success)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-success)', padding: '0.25rem 0.6rem' }}>✓ پرداخت زودهنگام</button>
                     <button onClick={() => toggleRecurring(r.id, r.is_active)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: r.is_active ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{r.is_active ? 'فعال' : 'غیرفعال'}</button>
                     <button onClick={() => deleteRecurring(r.id)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>حذف</button>
@@ -837,6 +865,7 @@ function ExpensesTab() {
             <Input label="مبلغ (تومان)" type="number" value={recurringForm.amount} onChange={(e) => setRecurringForm({ ...recurringForm, amount: e.target.value })} placeholder="مثلاً 5000000" />
             <Input label="روز ماه (موعد)" type="number" value={recurringForm.due_day} onChange={(e) => setRecurringForm({ ...recurringForm, due_day: e.target.value })} placeholder="مثلاً 5" />
           </div>
+          <Select label="اولویت" value={recurringForm.priority} onChange={(v) => setRecurringForm({ ...recurringForm, priority: v as 'high' | 'medium' | 'low' })} options={[{ value: 'high', label: 'بالا (فوری)' }, { value: 'medium', label: 'متوسط' }, { value: 'low', label: 'پایین' }]} />
           <Select label="روش پرداخت" value={recurringForm.method} onChange={(v) => setRecurringForm({ ...recurringForm, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال' }, { value: 'check', label: 'چک' }]} />
           <Textarea label="توضیحات" value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} />
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>این هزینه هر ماه در «روز ماه» مشخص‌شده تکرار می‌شود و نزدیک موعد، اعلان یادآوری دریافت می‌کنید.</div>

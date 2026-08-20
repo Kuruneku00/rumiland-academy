@@ -220,6 +220,11 @@ export interface RecurringExpense {
   description?: string | null;
   is_active: boolean;
   /**
+   * اولویت پرداخت هزینه: high (بالا) / medium (متوسط) / low (پایین).
+   * برای مرتب‌سازی و تعیین ترتیب اهمیت هزینه‌های ماهانه.
+   */
+  priority?: 'high' | 'medium' | 'low';
+  /**
    * آخرین ماه شمسی که هزینه‌اش پرداخت شده (مثلاً «1405-05»).
    * برای پرداخت زودهنگام استفاده می‌شود؛ وقتی ست باشد، موعد بعدی از ماهِ بعد
    * از این مقدار محاسبه می‌شود و یادآوریِ ماه پرداخت‌شده دوباره تکرار نمی‌شود.
@@ -488,6 +493,22 @@ export class RumilandDB extends Dexie {
           .modify((expense: any) => {
             if (expense.paid_through === undefined) {
               expense.paid_through = null;
+            }
+          });
+      });
+
+    // افزودن priority به هزینه‌ی ماهانه (اولویت‌بندی)
+    this.version(5)
+      .stores({
+        recurringExpenses: 'id, title, category, due_day, is_active, priority',
+      })
+      .upgrade((tx) => {
+        return tx
+          .table('recurringExpenses')
+          .toCollection()
+          .modify((expense: any) => {
+            if (expense.priority === undefined) {
+              expense.priority = 'medium';
             }
           });
       });

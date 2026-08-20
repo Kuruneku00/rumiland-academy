@@ -1512,6 +1512,7 @@ export const financeService = {
     const expense: RecurringExpense = {
       ...data,
       id: uuid(),
+      priority: (data as any).priority ?? 'medium',
       paid_through: (data as any).paid_through ?? null,
       created_at: now,
       updated_at: now,
@@ -1844,7 +1845,14 @@ export const financeService = {
           due_label: info.due_label,
         };
       })
-      .sort((a, b) => (a as any).days_until_due - (b as any).days_until_due);
+      .sort((a, b) => {
+        // اول بر اساس اولویت (بالا → پایین)، سپس بر اساس نزدیکی موعد
+        const rank = (x: any) => (x.priority === 'high' ? 0 : x.priority === 'low' ? 2 : 1);
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        return (a as any).days_until_due - (b as any).days_until_due;
+      });
   },
 
   /**
