@@ -1774,4 +1774,84 @@ export const financeService = {
       transactions: filtered,
     };
   },
+
+  /**
+   * هزینه‌های ماهانه‌ی فعال را به همراه موعد بعدی آن‌ها برمی‌گرداند.
+   * برای هر مورد days_until_due و is_overdue محاسبه می‌شود (بر اساس due_day).
+   */
+  async getUpcomingRecurringExpenses() {
+    const now = new Date();
+    // استفاده از تاریخ شمسی ساده: فقط از روز ماه میلادی برای نمایش نسبی استفاده می‌کنیم،
+    // اما موعد واقعی روی «روزِ ماه» (due_day) است که کاربر تعیین کرده.
+    const items = await db.recurringExpenses
+      .filter((item) => !item.deleted_at && item.is_active)
+      .toArray();
+
+    const todayDay = now.getDate();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const todayJalali = new Date().toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' });
+
+    return items
+      .map((item) => {
+        const dueDay = Math.min((item as any).due_day || 1, 31);
+        const clampedDay = Math.min(dueDay, daysInMonth);
+        let daysUntil = clampedDay - todayDay;
+        let isOverdue = false;
+        if (daysUntil < 0) {
+          // گذشته در این ماه → موعد در ماه آینده
+          daysUntil = daysInMonth - todayDay + clampedDay;
+        }
+        return {
+          ...item,
+          due_day: dueDay,
+          days_until_due: daysUntil,
+          is_overdue: daysUntil === 0,
+          due_label: `روز ${dueDay.toLocaleString('fa-IR')} هر ماه`,
+        };
+      })
+      .sort((a, b) => (a as any).days_until_due - (b as any).days_until_due);
+  },
+
+  /**
+   * بر اساس هزینه‌های ماهانه، اگر موعدی در چند روز آینده (یا سررسیده) باشد،
+   * اعلان‌های یادآوری تولید می‌کند و تعداد اعلان‌های تولیدشده را برمی‌گرداند.
+   */
+  async generateRecurringReminders(thresholdDays = 3) {
+    const upcoming = await this.getUpcomingRecurringExpenses();
+    const dueSoon = upcoming.filter(
+      (u: any) => u.days_until_due <= thresholdDays
+    );
+    let created = 0;
+    for (const item of dueSoon) {
+      // جلوگیری از اعلان تکراری: چک می‌کنیم آیا اعلان مشابهی در 24 ساعت اخیر ساخته شده
+      const recent = await db.notifications
+        .where('user_id').equals('system')
+        .toArray();
+      const key = (n: any) => `${n.title}::${n.message}`;
+      const msg =
+        item.days_until_due <= 0
+          ? `امروز (روز ${(item as any).due_day} ماه) موعد پرداخت «${item.title}» است.`
+          : `حدود ${(item as any).days_until_due.toLocaleString('fa-IR')} روز تا موعد پرداخت «${item.title}» (روز ${(item as any).due_day} ماه) مانده است.`;
+      const dup = recent.some(
+        (n: any) =>
+          key(n) === `یادآوری هزینه ماهانه::${msg}` &&
+          Date.now() - new Date(n.created_at).getTime() < 24 * 3600 * 1000
+      );
+      if (!dup) {
+        await db.notifications.put({
+          id: uuid(),
+          user_id: 'system',
+          title: 'یادآوری هزینه ماهانه',
+          message: msg,
+          type: 'warning',
+          category: 'finance',
+          is_read: false,
+          link: null,
+          created_at: new Date().toISOString(),
+        } as any);
+        created++;
+      }
+    }
+    return { total: dueSoon.length, created };
+  },
 };

@@ -2,13 +2,13 @@
  * Rumiland Academy — مدیریت مالی کامل
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { paymentService, studentService, registrationService, classService, courseService, financeService, financeCategoryLabel } from '@/services';
+import { paymentService, studentService, registrationService, classService, courseService, financeService, financeCategoryLabel, notificationService } from '@/services';
 import { useFinanceStore } from '@/store';
 import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
 import { Button, Input, Select, SearchInput, Textarea } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
 import { db } from '@/db/schema';
-import type { Payment, Registration, FinanceTransaction } from '@/db/schema';
+import type { Payment, Registration, FinanceTransaction, RecurringExpense, FinanceCategory } from '@/db/schema';
 
 interface StudentOption { id: string; first_name: string; last_name: string; }
 interface RegistrationOption {
@@ -92,7 +92,7 @@ function FinanceDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { (async () => { setLoading(true); try { setData(await financeService.getFinancialDashboard()); } catch (e) { console.error(e); } setLoading(false); })(); }, []);
+  useEffect(() => { (async () => { setLoading(true); try { setData(await financeService.getFinancialDashboard()); } catch (e) { console.error(e); } setLoading(false); })().then(async () => { try { await financeService.generateRecurringReminders(3); } catch {} }); }, []);
 
   const cards = [
     { title: 'درآمد کل', value: money(data?.totalIncome ?? 0), color: 'var(--color-success)' },
@@ -672,23 +672,70 @@ function IncomeTab() {
 // ================================================================
 function ExpensesTab() {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  const [recurring, setRecurring] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [deleting, setDeleting] = useState<FinanceTransaction | null>(null);
 
+  // هزینه ماهانه (recurring)
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [recurringForm, setRecurringForm] = useState({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '' });
+  const [recurringSaving, setRecurringSaving] = useState(false);
+  const [recurringError, setRecurringError] = useState('');
+
   const load = useCallback(async () => {
     setLoading(true);
-    try { const txs = await financeService.getTransactions(); setTransactions(txs.filter((t) => t.type === 'expense')); } catch (e) { console.error(e); }
+    try {
+      const txs = await financeService.getTransactions();
+      setTransactions(txs.filter((t) => t.type === 'expense'));
+      setRecurring(await financeService.getUpcomingRecurringExpenses());
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
 
   const total = transactions.reduce((s, t) => s + Number(t.amount || 0), 0);
+  const recurringTotal = recurring.reduce((s, r) => s + Number(r.amount || 0), 0);
 
   const handleDelete = async () => {
     if (!deleting) return;
     await financeService.deleteTransaction(deleting.id);
     setDeleting(null);
+    await load();
+  };
+
+  const handleSaveRecurring = async () => {
+    const amount = Number(recurringForm.amount);
+    const dueDay = Number(recurringForm.due_day);
+    if (!recurringForm.title.trim()) { setRecurringError('عنوان هزینه را وارد کنید'); return; }
+    if (!isFinite(amount) || amount <= 0) { setRecurringError('مبلغ معتبر وارد کنید'); return; }
+    if (!isFinite(dueDay) || dueDay < 1 || dueDay > 31) { setRecurringError('روز ماه باید بین ۱ تا ۳۱ باشد'); return; }
+    setRecurringSaving(true);
+    try {
+      await financeService.createRecurringExpense({
+        title: recurringForm.title.trim(),
+        category: recurringForm.category,
+        amount,
+        due_day: dueDay,
+        method: recurringForm.method as any,
+        description: recurringForm.description || null,
+        is_active: true,
+      } as any);
+      setShowRecurringModal(false);
+      setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '' });
+      await load();
+      // یادآوری فوری هم بررسی شود
+      await financeService.generateRecurringReminders(3);
+    } finally { setRecurringSaving(false); }
+  };
+
+  const toggleRecurring = async (id: string, current: boolean) => {
+    await financeService.updateRecurringExpense(id, { is_active: !current } as any);
+    await load();
+  };
+
+  const deleteRecurring = async (id: string) => {
+    await financeService.deleteRecurringExpense(id);
     await load();
   };
 
@@ -704,13 +751,75 @@ function ExpensesTab() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <SummaryBox title="مجموع هزینه‌ها" value={money(total)} color="var(--color-danger)" />
-        <Button onClick={() => setShowModal(true)}>ثبت هزینه جدید</Button>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <SummaryBox title="مجموع هزینه‌ها" value={money(total)} color="var(--color-danger)" />
+          <SummaryBox title="جمع هزینه‌های ماهانه" value={money(recurringTotal)} color="var(--color-warning)" />
+        </div>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <Button variant="secondary" onClick={() => { setRecurringError(''); setShowRecurringModal(true); }}>+ هزینه ماهانه</Button>
+          <Button onClick={() => setShowModal(true)}>ثبت هزینه جدید</Button>
+        </div>
       </div>
+
+      {/* هزینه‌های ماهانه (موعددار) */}
+      <Card padding="1.25rem" style={{ marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <h3 style={{ margin: 0, fontSize: 'var(--font-size-md)' }}>هزینه‌های ماهانه (موعددار)</h3>
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>هر ماه به‌صورت خودکار یادآوری موعد ارسال می‌شود</span>
+        </div>
+        {recurring.length === 0 ? (
+          <EmptyState title="هزینه ماهانه‌ای ثبت نشده" description="مثلاً اجاره ماهانه، قسط وام، اشتراک اینترنت و…" />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {recurring.map((r: any) => {
+              const d = r.days_until_due;
+              const dueColor = d <= 0 ? 'var(--color-danger)' : d <= 3 ? 'var(--color-warning)' : 'var(--color-success)';
+              const dueText = d <= 0 ? 'موعد امروز است!' : `${d.toLocaleString('fa-IR')} روز مانده`;
+              return (
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '160px' }}>
+                    <div style={{ fontWeight: 600 }}>{r.title}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · {r.due_label} · {METHOD_LABELS[r.method] || r.method}</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{money(r.amount)}</div>
+                    <Badge variant={d <= 0 ? 'danger' : d <= 3 ? 'warning' : 'success'}>{dueText}</Badge>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <button onClick={() => toggleRecurring(r.id, r.is_active)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: r.is_active ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{r.is_active ? 'فعال' : 'غیرفعال'}</button>
+                    <button onClick={() => deleteRecurring(r.id)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>حذف</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
       <Table columns={columns} data={transactions} rowKey={(t) => t.id} isLoading={loading} emptyState={<EmptyState title="هیچ هزینه‌ای ثبت نشده است" />} />
+
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="ثبت هزینه جدید" size="md">
         <TransactionForm type="expense" onSaved={() => { setShowModal(false); load(); }} onCancel={() => setShowModal(false)} />
       </Modal>
+
+      {/* مودال هزینه ماهانه */}
+      <Modal isOpen={showRecurringModal} onClose={() => setShowRecurringModal(false)} title="ثبت هزینه ماهانه" size="md" footer={<><Button variant="secondary" onClick={() => setShowRecurringModal(false)} disabled={recurringSaving}>انصراف</Button><Button onClick={handleSaveRecurring} disabled={recurringSaving}>{recurringSaving ? 'در حال ثبت...' : 'ثبت هزینه ماهانه'}</Button></>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+          {recurringError && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{recurringError}</div>}
+          <Input label="عنوان هزینه" value={recurringForm.title} onChange={(e) => setRecurringForm({ ...recurringForm, title: e.target.value })} placeholder="مثلاً اجاره ماهانه" />
+          <Select label="دسته‌بندی" value={recurringForm.category} onChange={(v) => setRecurringForm({ ...recurringForm, category: v })} options={[
+            { value: 'rent', label: 'اجاره' }, { value: 'salary', label: 'حقوق' }, { value: 'utilities', label: 'قبوض' }, { value: 'internet', label: 'اینترنت' }, { value: 'software', label: 'نرم‌افزار' }, { value: 'maintenance', label: 'تعمیرات' }, { value: 'transport', label: 'حمل‌ونقل' }, { value: 'advertising', label: 'تبلیغات' }, { value: 'equipment', label: 'تجهیزات' }, { value: 'other', label: 'سایر' },
+          ]} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+            <Input label="مبلغ (تومان)" type="number" value={recurringForm.amount} onChange={(e) => setRecurringForm({ ...recurringForm, amount: e.target.value })} placeholder="مثلاً 5000000" />
+            <Input label="روز ماه (موعد)" type="number" value={recurringForm.due_day} onChange={(e) => setRecurringForm({ ...recurringForm, due_day: e.target.value })} placeholder="مثلاً 5" />
+          </div>
+          <Select label="روش پرداخت" value={recurringForm.method} onChange={(v) => setRecurringForm({ ...recurringForm, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال' }, { value: 'check', label: 'چک' }]} />
+          <Textarea label="توضیحات" value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} />
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>این هزینه هر ماه در «روز ماه» مشخص‌شده تکرار می‌شود و نزدیک موعد، اعلان یادآوری دریافت می‌کنید.</div>
+        </div>
+      </Modal>
+
       <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="حذف هزینه" size="sm" footer={<><Button variant="secondary" onClick={() => setDeleting(null)}>انصراف</Button><Button variant="danger" onClick={handleDelete}>حذف</Button></>}>
         <p style={{ color: 'var(--color-text-secondary)' }}>آیا از حذف این هزینه اطمینان دارید؟</p>
       </Modal>
