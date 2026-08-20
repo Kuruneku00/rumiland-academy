@@ -6,6 +6,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useStudentStore } from '@/store';
 import { studentService, registrationService, courseService, classService } from '@/services';
+import { resolveRegistrationTotal, paidAmountForRegistration } from '@/services/finance';
 import { Card, EmptyState, Table, Pagination, Modal } from '@/components/Layout';
 import { Button, Input, Select, SearchInput, Badge } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
@@ -66,8 +67,16 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onViewProfile }) => 
         studentService.getStudentPayments(st.id),
       ]);
       const classNames = classes.map((c: any) => `${c.course?.title || ''} - ${c.class?.code || ''}`).filter(Boolean);
-      const total = classes.reduce((sum: number, c: any) => sum + (Number(c.registration.total_amount) || 0), 0);
-      const paid = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      // شهریه‌ی مؤثر هر کلاس (total_amount یا tuition_fee یا شهریه‌ی دوره) — جلوی صفر شدن گرفته می‌شود
+      let total = 0;
+      for (const c of classes) total += await resolveRegistrationTotal(c.registration);
+      // مجموع پرداخت‌های واقعی این شاگرد
+      let paidViaPayments = payments.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
+      // اگر پرداختی ثبت نشده اما paid_amount روی ثبت‌نام هست، از آن استفاده کن
+      if (paidViaPayments <= 0) {
+        paidViaPayments = classes.reduce((sum: number, c: any) => sum + (Number(c.registration.paid_amount) || 0), 0);
+      }
+      const paid = paidViaPayments;
       let paymentStatus: any = 'none';
       if (classes.length === 0) paymentStatus = 'none';
       else if (total > 0 && paid >= total) paymentStatus = 'paid';

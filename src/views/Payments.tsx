@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { paymentService, studentService, registrationService, classService, courseService, financeService, financeCategoryLabel, notificationService } from '@/services';
 import { useFinanceStore } from '@/store';
 import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
-import { Button, Input, Select, SearchInput, Textarea } from '@/components/Basic';
+import { Button, Input, Select, SearchInput, Textarea, SearchableSelect } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
 import { db } from '@/db/schema';
 import type { Payment, Registration, FinanceTransaction, RecurringExpense, FinanceCategory } from '@/db/schema';
@@ -161,6 +161,7 @@ function PaymentsTab() {
   const [formData, setFormData] = useState({ student_id: '', registration_id: '', amount: '', installment_number: '', payment_date_jalali: '', method: 'cash', description: '' });
   const [debtOverride, setDebtOverride] = useState<string>('');
   const [savingTuition, setSavingTuition] = useState(false);
+  const [formDiscount, setFormDiscount] = useState<string>('');
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -219,6 +220,7 @@ function PaymentsTab() {
     const registration = registrationsList.find((r) => r.id === opt.registrationId) || null;
     setSelectedRegistration(registration); setSelectedInstallment(null); setRegistrationPayments([]);
     setDebtOverride(opt.tuition > 0 ? String(opt.tuition) : '');
+    setFormDiscount(registration?.discount ? String(registration.discount) : '');
     setFormData((c) => ({ ...c, registration_id: opt.registrationId, amount: '', installment_number: '' }));
     if (opt.registrationId) await loadRegistrationPayments(opt.registrationId);
     await loadClassMeta(registration);
@@ -235,27 +237,34 @@ function PaymentsTab() {
       total = course ? Number(course.tuition_fee || 0) : 0;
     }
     setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
+    setFormDiscount(registration?.discount ? String(registration.discount) : '');
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
     await loadRegistrationPayments(registrationId);
     await loadClassMeta(registration);
   };
 
-  /** ذخیره شهریه کل در دیتابیس، تا پرداخت‌ها بر اساس آن محاسبه شوند */
+  /** ذخیره شهریه کل + تخفیف در دیتابیس، تا پرداخت‌ها بر اساس آن محاسبه شوند */
   const handleSaveTuition = async () => {
     if (!selectedRegistration) return;
     const total = Number(debtOverride);
+    const discount = formDiscount.trim() !== '' ? Number(formDiscount) : 0;
     if (!isFinite(total) || total <= 0) { setFormErrors((e) => ({ ...e, tuition: 'مبلغ شهریه معتبر وارد کنید' })); return; }
+    if (formDiscount.trim() !== '' && (!isFinite(discount) || discount < 0)) { setFormErrors((e) => ({ ...e, tuition: 'مبلغ تخفیف معتبر وارد کنید' })); return; }
     setSavingTuition(true);
     try {
+      // ابتدا شهریه کل را ثبت کن، سپس تخفیف را روی آن اعمال کن
       const res = await paymentService.setRegistrationTotal(selectedRegistration.id, total);
-      if (res.success && res.data) {
-        setSelectedRegistration(res.data as any);
-        await loadRegistrationPayments(selectedRegistration.id);
-        await loadPayments();
-        await loadRegistrations(res.data.student_id);
-      } else {
-        setFormErrors((e) => ({ ...e, tuition: res.error || 'خطا در ذخیره شهریه' }));
+      let updated = res.success && res.data ? res.data : selectedRegistration;
+      if (discount > 0 || formDiscount.trim() !== '') {
+        const dres = await paymentService.setRegistrationDiscount(selectedRegistration.id, discount);
+        if (dres.success && dres.data) updated = dres.data;
+        else { setFormErrors((e) => ({ ...e, tuition: dres.error || 'خطا در ثبت تخفیف' })); return; }
       }
+      setSelectedRegistration(updated as any);
+      setFormDiscount(discount > 0 ? String(discount) : '');
+      await loadRegistrationPayments(selectedRegistration.id);
+      await loadPayments();
+      await loadRegistrations(updated.student_id);
     } finally { setSavingTuition(false); }
   };
 
@@ -274,10 +283,12 @@ function PaymentsTab() {
   }, []);
 
   const registrationPaid = useMemo(() => registrationPayments.reduce((s, p) => s + Number(p.amount || 0), 0), [registrationPayments]);
+  // تخفیف واردشده در فرم (به‌تومان)
+  const discountValueNum = formDiscount.trim() !== '' && !isNaN(Number(formDiscount)) ? Number(formDiscount) : 0;
   const registrationTotal = selectedRegistration
     ? (debtOverride !== '' && !isNaN(Number(debtOverride)) && Number(debtOverride) > 0
-        ? Number(debtOverride)
-        : getRegistrationTotal(selectedRegistration))
+        ? Math.max(0, Number(debtOverride) - discountValueNum)
+        : Math.max(0, getRegistrationTotal(selectedRegistration) - discountValueNum))
     : 0;
   const registrationRemaining = Math.max(0, registrationTotal - registrationPaid);
   const plan = selectedRegistration ? getPlan(selectedRegistration) : [];
@@ -485,7 +496,7 @@ function PaymentsTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           {formErrors.general && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{formErrors.general}</div>}
           {!selectedRegistration && (<>
-            <Select label="شاگرد" placeholder="انتخاب شاگرد..." value={formData.student_id} onChange={handleStudentChange} error={formErrors.student_id} options={studentsList.map((s) => ({ value: s.id, label: `${s.first_name} ${s.last_name}` }))} />
+            <SearchableSelect label="شاگرد" placeholder="انتخاب شاگرد..." searchPlaceholder="جستجوی نام شاگرد..." value={formData.student_id} onChange={handleStudentChange} error={formErrors.student_id} options={studentsList.map((s) => ({ value: s.id, label: `${s.first_name} ${s.last_name}` }))} />
             {classOptions.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 <Select label="کلاس (خودکار شهریه را می‌آورد)" placeholder="انتخاب کلاس..." value={selectedClassId} onChange={handleClassChange} options={classOptions.map((c) => ({ value: c.id, label: c.label }))} />
@@ -512,12 +523,15 @@ function PaymentsTab() {
                 </div>
               </div>
 
-              {/* تعیین شهریه کل — قابل ویرایش و ذخیره */}
+              {/* تعیین شهریه کل + تخفیف — قابل ویرایش و ذخیره */}
               <div style={{ padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-tertiary)' }}>
-                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: '0.5rem' }}>💰 اگر شهریه کامل این شاگرد را هنوز تعیین نکرده‌اید، اینجا وارد و ثبت کنید</div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <Input type="number" value={debtOverride} onChange={(e) => setDebtOverride(e.target.value)} placeholder="مبلغ کل شهریه (تومان)" style={{ flex: 1 }} />
-                  <Button variant="secondary" onClick={handleSaveTuition} disabled={savingTuition}>{savingTuition ? 'در حال ذخیره...' : 'ثبت شهریه'}</Button>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: '0.5rem' }}>💰 اگر شهریه کامل این شاگرد را هنوز تعیین نکرده‌اید، اینجا وارد و ثبت کنید. تخفیف را هم می‌توانید همین‌جا ثبت کنید.</div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <Input type="number" value={debtOverride} onChange={(e) => setDebtOverride(e.target.value)} placeholder="مبلغ کل شهریه (تومان)" style={{ flex: 1, minWidth: '140px' }} />
+                  <Input type="number" value={formDiscount} onChange={(e) => setFormDiscount(e.target.value)} placeholder="تخفیف (تومان)" style={{ flex: 1, minWidth: '120px' }} />
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <Button variant="secondary" onClick={handleSaveTuition} disabled={savingTuition}>{savingTuition ? 'در حال ذخیره...' : 'ثبت شهریه و تخفیف'}</Button>
                 </div>
                 {formErrors.tuition && <div style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)', marginTop: '0.4rem' }}>{formErrors.tuition}</div>}
               </div>

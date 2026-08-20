@@ -9,6 +9,7 @@
  */
 import React, { useEffect, useState, useRef } from 'react';
 import { registrationService, studentService, courseService, classService, teacherService } from '@/services';
+import { persistRegistrationFigures } from '@/services/finance';
 import { Card, EmptyState, Table, Pagination, Badge, Modal, StatCard } from '@/components/Layout';
 import { Button, Select, SearchableSelect } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
@@ -67,9 +68,15 @@ export const RegistrationAttendancePage: React.FC<RegPageProps> = ({ onViewProfi
     setLoading(true);
     const r = await registrationService.getRegistrationsResolved({ page: regPage, perPage: 100 });
     const enriched = await Promise.all(r.data.map(async (item: any) => {
-      const cls = await db.classes.get(item.registration.class_id);
+      // وضعیت مالی ثبت‌نام را بازمحاسبه کن تا paid/pending/overdue همیشه درست باشد
+      let reg = item.registration;
+      try {
+        const figures = await persistRegistrationFigures(reg.id);
+        reg = { ...reg, ...figures, payment_status: figures.payment_status };
+      } catch (e) { /* نادیده بگیر؛ مقدار ذخیره‌شده استفاده می‌شود */ }
+      const cls = await db.classes.get(reg.class_id);
       const teacher = cls ? await db.teachers.get(cls.teacher_id) : null;
-      return { ...item, teacherName: teacher ? `${teacher.first_name} ${teacher.last_name}` : '--' };
+      return { ...item, registration: reg, teacherName: teacher ? `${teacher.first_name} ${teacher.last_name}` : '--' };
     }));
     setRegRows(enriched);
     setRegTotal(r.total);
@@ -247,7 +254,7 @@ export const RegistrationAttendancePage: React.FC<RegPageProps> = ({ onViewProfi
     { key: 'class', title: 'کلاس', render: (r) => r.className },
     { key: 'teacher', title: 'استاد', render: (r) => r.teacherName },
     { key: 'registration_date', title: 'تاریخ ثبت‌نام', render: (r) => r.registration.registration_date_jalali || new Date(r.registration.registration_date).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }) },
-    { key: 'payment_status', title: 'وضعیت پرداخت', render: (r) => <Badge variant={r.registration.payment_status === 'paid' ? 'success' : r.registration.payment_status === 'overdue' ? 'danger' : 'warning'}>{r.registration.payment_status === 'paid' ? 'پرداخت شده' : r.registration.payment_status === 'overdue' ? 'معوق' : 'در انتظار'}</Badge> },
+    { key: 'payment_status', title: 'وضعیت پرداخت', render: (r) => { const st = r.registration.payment_status; return <Badge variant={st === 'paid' ? 'success' : st === 'overdue' ? 'danger' : st === 'partial' ? 'info' : 'warning'}>{st === 'paid' ? 'پرداخت شده' : st === 'overdue' ? 'معوق' : st === 'partial' ? 'پرداخت ناقص' : 'در انتظار'}</Badge>; } },
     {
       key: 'actions', title: 'عملیات', render: (r) => (
         <div style={{ display: 'flex', gap: '0.5rem' }}>
