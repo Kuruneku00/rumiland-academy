@@ -1,7 +1,7 @@
 /**
  * Rumiland Academy — Quizzes & Reports Module (fully connected)
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
 import { Button, Input, Select, SearchInput, Textarea } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
@@ -37,6 +37,8 @@ export const QuizzesPage: React.FC = () => {
 
   const [quizForm, setQuizForm] = useState(emptyQuizForm());
   const [questionForm, setQuestionForm] = useState(emptyQuestionForm());
+  const questionImageInputRef = useRef<HTMLInputElement>(null);
+  const answerImageInputRef = useRef<HTMLInputElement>(null);
 
   function emptyQuizForm() { return { title: '', description: '', course_id: '', class_id: '', teacher_id: '', quiz_type: 'multiple_choice', passing_score: 50, max_score: 100, time_limit_minutes: 60, start_date: '', end_date: '', is_random_questions: false, shuffle_answers: true, auto_grade: true, status: 'draft' }; }
   function emptyQuestionForm(): any { return { question_text: '', question_type: 'multiple_choice', options: ['', '', '', ''], correct_answer: '', points: 10, question_image: null as string | null, answer_image: null as string | null }; }
@@ -151,7 +153,7 @@ export const QuizzesPage: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { alert('فقط فایل تصویر مجاز است'); return; }
-    if (file.size > 2 * 1024 * 1024) { alert('حداکثر حجم تصویر ۲ مگابایت است'); return; }
+    if (file.size > 8 * 1024 * 1024) { alert('حداکثر حجم تصویر ۸ مگابایت است'); return; }
     const reader = new FileReader();
     reader.onload = () => setQuestionForm({ ...questionForm, [field]: reader.result as string });
     reader.readAsDataURL(file);
@@ -247,21 +249,23 @@ export const QuizzesPage: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div>
               <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>تصویر صورت سوال (اختیاری)</label>
-              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'question_image')} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }} />
+              <input ref={questionImageInputRef} type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'question_image')} style={{ display: 'none' }} />
+              <Button size="sm" variant="secondary" onClick={() => questionImageInputRef.current?.click()}>آپلود عکس سوال</Button>
               {questionForm.question_image && (
                 <div style={{ marginTop: '0.5rem', position: 'relative', display: 'inline-block' }}>
-                  <img src={questionForm.question_image} alt="سوال" style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
-                  <button onClick={() => setQuestionForm({ ...questionForm, question_image: null })} style={{ position: 'absolute', top: 4, left: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer' }}>×</button>
+                  <img src={questionForm.question_image} alt="سوال" style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
+                  <button onClick={() => setQuestionForm({ ...questionForm, question_image: null })} style={{ position: 'absolute', top: 4, right: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>×</button>
                 </div>
               )}
             </div>
             <div>
               <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '0.375rem' }}>تصویر پاسخ/جواب (اختیاری)</label>
-              <input type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'answer_image')} style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }} />
+              <input ref={answerImageInputRef} type="file" accept="image/*" onChange={(e) => handleImageUpload(e, 'answer_image')} style={{ display: 'none' }} />
+              <Button size="sm" variant="secondary" onClick={() => answerImageInputRef.current?.click()}>آپلود عکس پاسخ</Button>
               {questionForm.answer_image && (
                 <div style={{ marginTop: '0.5rem', position: 'relative', display: 'inline-block' }}>
-                  <img src={questionForm.answer_image} alt="پاسخ" style={{ maxWidth: '100%', maxHeight: 140, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
-                  <button onClick={() => setQuestionForm({ ...questionForm, answer_image: null })} style={{ position: 'absolute', top: 4, left: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer' }}>×</button>
+                  <img src={questionForm.answer_image} alt="پاسخ" style={{ maxWidth: '100%', maxHeight: 160, borderRadius: 'var(--radius-md)', border: 'var(--border-default)' }} />
+                  <button onClick={() => setQuestionForm({ ...questionForm, answer_image: null })} style={{ position: 'absolute', top: 4, right: 4, background: 'var(--color-danger)', color: '#fff', border: 'none', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', fontSize: '14px', lineHeight: 1 }}>×</button>
                 </div>
               )}
             </div>
