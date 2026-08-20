@@ -719,13 +719,13 @@ export class PaymentService extends BaseService<Payment> {
       let expectedTotal =
         Number(reg.total_amount ?? (reg.tuition_fee + reg.registration_fee - reg.discount));
 
-      // اگر شهریه/بدهی کل تعیین نشده بود (۰)، آن را از دوره‌ی مرتبط بخوانیم.
+      // اگر شهریه/بدهی کل تعیین نشده بود (۰)، آن را از دوره‌ی مرتبط بخوانیم (با لحاظ تخفیف).
       if (expectedTotal <= 0 && (reg.class_id || reg.course_id)) {
         const courseId = reg.course_id || (reg.class_id ? (await db.classes.get(reg.class_id))?.course_id : undefined);
         if (courseId) {
           const course = await db.courses.get(courseId);
           if (course && Number(course.tuition_fee || 0) > 0) {
-            expectedTotal = Number(course.tuition_fee);
+            expectedTotal = Math.max(0, Number(course.tuition_fee) - Number(reg.discount || 0));
           }
         }
       }
@@ -976,6 +976,7 @@ export class PaymentService extends BaseService<Payment> {
 
       await db.registrations.update(registrationId, {
         discount: newDiscount,
+        tuition_fee: tuition,
         total_amount: newTotal,
         installment_plan_json: planJson,
         updated_at: new Date().toISOString(),

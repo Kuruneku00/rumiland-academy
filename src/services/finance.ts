@@ -30,11 +30,14 @@ import { v4 as uuid } from 'uuid';
 
 /** مبلغ کل قابل پرداخت یک ثبت‌نام */
 export function registrationTotal(r: Registration): number {
-  return Number(
-    r.total_amount ??
-      (Number(r.tuition_fee || 0) +
-        Number(r.registration_fee || 0) -
-        Number(r.discount || 0))
+  const explicit = Number(r.total_amount);
+  if (explicit > 0) return explicit;
+  // اگر total_amount صفر یا نامعتبر بود، شهریه + هزینه ثبت‌نام − تخفیف را حساب کن
+  return Math.max(
+    0,
+    Number(r.tuition_fee || 0) +
+      Number(r.registration_fee || 0) -
+      Number(r.discount || 0)
   );
 }
 
@@ -51,7 +54,8 @@ export async function resolveRegistrationTotal(r: Registration): Promise<number>
   if (courseId) {
     const course = await db.courses.get(courseId);
     if (course && Number(course.tuition_fee || 0) > 0) {
-      return Number(course.tuition_fee);
+      // تخفیف ثبت‌نام باید از شهریه دوره کم شود
+      return Math.max(0, Number(course.tuition_fee) - Number(r.discount || 0));
     }
   }
   return 0;
@@ -106,10 +110,23 @@ export async function recalcRegistrationFigures(
   if (payment_status !== 'paid' && remaining > 0) {
     const plan = parseInstallmentPlan(reg);
     const now = new Date().toISOString().split('T')[0];
-    const hasOverdueInstallment = plan.some(
-      (item) => item.due_date && item.due_date < now
-    );
-    if (hasOverdueInstallment) payment_status = 'overdue';
+    // پرداخت‌های فعال این ثبت‌نام را بخوان تا بدانیم هر قسط چقدر پرداخت شده است
+    const payments = await db.payments
+      .where('registration_id')
+      .equals(registrationId)
+      .filter((p) => !p.deleted_at && p.status !== 'cancelled')
+      .toArray();
+
+    // «معوق» فقط وقتی است که قسطی که سررسیدش گذشته هنوز به‌طور کامل پرداخت نشده باشد.
+    // پرداختِ قسط‌های آینده یا قسطِ تسویه‌شده نباید معوق حساب شود.
+    const hasUnpaidOverdue = plan.some((item) => {
+      if (!item.due_date || item.due_date >= now) return false; // سررسید نرسیده
+      const paidForInstallment = payments
+        .filter((p) => Number(p.installment_number || 0) === Number(item.number))
+        .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+      return paidForInstallment < Number(item.amount || 0);
+    });
+    if (hasUnpaidOverdue) payment_status = 'overdue';
   }
 
   return { total, paid, remaining, payment_status };
