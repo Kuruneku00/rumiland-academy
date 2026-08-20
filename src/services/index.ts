@@ -2,7 +2,7 @@
  * Rumiland Academy — Full Service Layer with resolved lookups
  */
 import { BaseService } from './base';
-import { createIncomeTransactionForPayment, syncTransactionForPayment, removeTransactionForPayment, persistRegistrationFigures, registrationTotal, paidAmountForRegistration, parseInstallmentPlan } from './finance';
+import { createIncomeTransactionForPayment, syncTransactionForPayment, removeTransactionForPayment, persistRegistrationFigures, registrationTotal, resolveRegistrationTotal, paidAmountForRegistration, parseInstallmentPlan } from './finance';
 import { db } from '@/db/schema';
 import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, FinanceTransaction, FinanceCategory, RecurringExpense, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
 import { v4 as uuid } from 'uuid';
@@ -745,6 +745,12 @@ export class PaymentService extends BaseService<Payment> {
           success: false,
           error: `مبلغ پرداختی بیشتر از مانده بدهی است. مانده فعلی: ${(expectedTotal - currentPaid).toLocaleString('fa-IR')} تومان`
         };
+      }
+
+      // اگر شهریه کل هنوز در ثبت‌نام ذخیره نشده بود ولی از دوره خوانده شد، آن را ذخیره کن
+      // تا وضعیت پرداخت (در انتظار → پرداخت شده) به‌درستی محاسبه شود.
+      if (expectedTotal > 0 && Number(reg.total_amount || 0) <= 0) {
+        await db.registrations.update(reg.id, { total_amount: expectedTotal } as any);
       }
 
       const payment: Payment = {
@@ -1516,7 +1522,7 @@ export const financeService = {
     let debtorCount = 0;
     for (const reg of registrations) {
       const paid = await paidAmountForRegistration(reg.id);
-      const total = registrationTotal(reg);
+      const total = await resolveRegistrationTotal(reg);
       const remaining = Math.max(0, total - paid);
       if (remaining > 0) {
         totalDebt += remaining;
@@ -1603,7 +1609,7 @@ export const financeService = {
 
     for (const reg of registrations) {
       const paid = await paidAmountForRegistration(reg.id);
-      const total = registrationTotal(reg);
+      const total = await resolveRegistrationTotal(reg);
       const remaining = Math.max(0, total - paid);
       if (remaining <= 0) continue; // فقط بدهکاران
 

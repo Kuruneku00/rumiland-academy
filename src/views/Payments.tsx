@@ -145,6 +145,9 @@ function PaymentsTab() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
+  const [showDetailPayment, setShowDetailPayment] = useState<Payment | null>(null);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [editForm, setEditForm] = useState({ amount: '', method: 'cash', payment_date_jalali: '', description: '' });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formSaving, setFormSaving] = useState(false);
 
@@ -324,6 +327,39 @@ function PaymentsTab() {
     setShowDeleteConfirm(false); setDeletingPayment(null);
     await loadPayments();
     if (selectedRegistration) await loadRegistrationPayments(selectedRegistration.id);
+    await loadRegistrations(formData.student_id || selectedRegistration?.student_id || '');
+  };
+
+  /** باز کردن فرم ویرایش پرداخت */
+  const openEditPayment = (p: Payment) => {
+    setEditingPayment(p);
+    setEditForm({
+      amount: String(p.amount),
+      method: p.method || 'cash',
+      payment_date_jalali: p.payment_date_jalali || '',
+      description: p.description || '',
+    });
+  };
+
+  /** ذخیره ویرایش پرداخت */
+  const handleSaveEdit = async () => {
+    if (!editingPayment) return;
+    const amount = Number(editForm.amount);
+    if (!isFinite(amount) || amount <= 0) { setFormErrors((e) => ({ ...e, edit: 'مبلغ معتبر وارد کنید' })); return; }
+    setFormSaving(true);
+    try {
+      const res = await paymentService.updatePayment(editingPayment.id, {
+        amount,
+        method: editForm.method as any,
+        payment_date_jalali: editForm.payment_date_jalali,
+        description: editForm.description,
+      });
+      if (!res.success) { setFormErrors((e) => ({ ...e, edit: res.error || 'خطا در ویرایش پرداخت' })); return; }
+      setEditingPayment(null);
+      await loadPayments();
+      if (selectedRegistration) await loadRegistrationPayments(selectedRegistration.id);
+      await loadRegistrations(formData.student_id || selectedRegistration?.student_id || '');
+    } finally { setFormSaving(false); }
   };
 
   const columns: Column<PaymentRow>[] = [
@@ -334,7 +370,13 @@ function PaymentsTab() {
     { key: 'amount', title: 'مبلغ', sortable: true, render: (row) => <strong>{money(row.payment.amount)}</strong> },
     { key: 'method', title: 'روش', render: (row) => METHOD_LABELS[row.payment.method] || row.payment.method },
     { key: 'status', title: 'وضعیت', render: (row) => <Badge variant={row.payment.status === 'paid' ? 'success' : row.payment.status === 'overdue' ? 'danger' : 'warning'}>{PAYMENT_STATUS_LABELS[row.payment.status] || row.payment.status}</Badge> },
-    { key: 'actions', title: 'عملیات', render: (row) => <button onClick={(e) => { e.stopPropagation(); setDeletingPayment(row.payment); setShowDeleteConfirm(true); }} style={{ background: 'none', border: 0, color: 'var(--color-danger)', cursor: 'pointer', fontFamily: 'inherit' }}>حذف</button> },
+    { key: 'actions', title: 'عملیات', render: (row) => (
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <button onClick={(e) => { e.stopPropagation(); setShowDetailPayment(row.payment); }} style={{ background: 'none', border: 0, color: 'var(--color-accent-400)', cursor: 'pointer', fontFamily: 'inherit' }}>جزئیات</button>
+        <button onClick={(e) => { e.stopPropagation(); openEditPayment(row.payment); }} style={{ background: 'none', border: 0, color: 'var(--color-primary-400)', cursor: 'pointer', fontFamily: 'inherit' }}>ویرایش</button>
+        <button onClick={(e) => { e.stopPropagation(); setDeletingPayment(row.payment); setShowDeleteConfirm(true); }} style={{ background: 'none', border: 0, color: 'var(--color-danger)', cursor: 'pointer', fontFamily: 'inherit' }}>حذف</button>
+      </div>
+    ) },
   ];
 
   const paidTotal = rows.filter((r) => r.payment.status === 'paid').reduce((s, r) => s + r.payment.amount, 0);
@@ -467,6 +509,31 @@ function PaymentsTab() {
 
       <Modal isOpen={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)} title="حذف پرداخت" size="sm" footer={<><Button variant="secondary" onClick={() => setShowDeleteConfirm(false)}>انصراف</Button><Button onClick={handleDelete} variant="danger">حذف پرداخت</Button></>}>
         <p style={{ color: 'var(--color-text-secondary)' }}>آیا از حذف این پرداخت اطمینان دارید؟ تراکنش مالی مرتبط نیز حذف می‌شود و وضعیت مالی ثبت‌نام به‌روزرسانی می‌گردد.</p>
+      </Modal>
+
+      {/* جزئیات پرداخت */}
+      <Modal isOpen={!!showDetailPayment} onClose={() => setShowDetailPayment(null)} title="جزئیات پرداخت" size="md" footer={<Button onClick={() => setShowDetailPayment(null)}>بستن</Button>}>
+        {showDetailPayment && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: 'var(--font-size-sm)' }}>
+            <div><div style={{ color: 'var(--color-text-tertiary)' }}>مبلغ</div><strong>{money(showDetailPayment.amount)}</strong></div>
+            <div><div style={{ color: 'var(--color-text-tertiary)' }}>روش پرداخت</div><strong>{METHOD_LABELS[showDetailPayment.method] || showDetailPayment.method}</strong></div>
+            <div><div style={{ color: 'var(--color-text-tertiary)' }}>تاریخ پرداخت</div><strong>{showDetailPayment.payment_date_jalali || formatDate(showDetailPayment.payment_date)}</strong></div>
+            <div><div style={{ color: 'var(--color-text-tertiary)' }}>وضعیت</div><Badge variant={showDetailPayment.status === 'paid' ? 'success' : showDetailPayment.status === 'overdue' ? 'danger' : 'warning'}>{PAYMENT_STATUS_LABELS[showDetailPayment.status] || showDetailPayment.status}</Badge></div>
+            <div style={{ gridColumn: '1 / -1' }}><div style={{ color: 'var(--color-text-tertiary)' }}>قسط</div><strong>{showDetailPayment.installment_title || (showDetailPayment.installment_number ? `قسط ${showDetailPayment.installment_number}` : '—')}</strong></div>
+            {showDetailPayment.description && <div style={{ gridColumn: '1 / -1' }}><div style={{ color: 'var(--color-text-tertiary)' }}>توضیحات</div><span>{showDetailPayment.description}</span></div>}
+          </div>
+        )}
+      </Modal>
+
+      {/* ویرایش پرداخت */}
+      <Modal isOpen={!!editingPayment} onClose={() => setEditingPayment(null)} title="ویرایش پرداخت" size="md" footer={<><Button variant="secondary" onClick={() => setEditingPayment(null)}>انصراف</Button><Button onClick={handleSaveEdit} disabled={formSaving}>{formSaving ? 'در حال ذخیره...' : 'ذخیره تغییرات'}</Button></>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          {formErrors.edit && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{formErrors.edit}</div>}
+          <Input label="مبلغ (تومان)" type="number" value={editForm.amount} onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })} />
+          <Select label="روش پرداخت" value={editForm.method} onChange={(v) => setEditForm({ ...editForm, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال بانکی' }, { value: 'check', label: 'چک' }]} />
+          <Input label="تاریخ پرداخت (جلالی)" value={editForm.payment_date_jalali} onChange={(e) => setEditForm({ ...editForm, payment_date_jalali: e.target.value })} placeholder="۱۴۰۵/۰۵/۲۸" />
+          <Textarea label="توضیحات" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+        </div>
       </Modal>
     </div>
   );

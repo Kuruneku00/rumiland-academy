@@ -38,6 +38,25 @@ export function registrationTotal(r: Registration): number {
   );
 }
 
+/**
+ * کل مبلغ قابل پرداخت، با fallback به شهریه‌ی دوره.
+ * اگر total_amount و tuition_fee هر دو صفر باشند، شهریه‌ی دوره (course.tuition_fee) خوانده می‌شود.
+ * برای کلاس خصوصی ماهانه، total_amount معمولاً مجموع اقساط است و همین مقدار بازمی‌گردد.
+ */
+export async function resolveRegistrationTotal(r: Registration): Promise<number> {
+  const direct = registrationTotal(r);
+  if (direct > 0) return direct;
+
+  const courseId = r.course_id || (r.class_id ? (await db.classes.get(r.class_id))?.course_id : undefined);
+  if (courseId) {
+    const course = await db.courses.get(courseId);
+    if (course && Number(course.tuition_fee || 0) > 0) {
+      return Number(course.tuition_fee);
+    }
+  }
+  return 0;
+}
+
 /** جمع پرداخت‌های فعال (غیرحذف‌شده و غیرلغو) یک ثبت‌نام */
 export async function paidAmountForRegistration(
   registrationId: string
@@ -77,7 +96,7 @@ export async function recalcRegistrationFigures(
   const reg = await db.registrations.get(registrationId);
   if (!reg) throw new Error('ثبت‌نام یافت نشد');
 
-  const total = registrationTotal(reg);
+  const total = await resolveRegistrationTotal(reg);
   const paid = await paidAmountForRegistration(registrationId);
   const remaining = Math.max(0, total - paid);
 
