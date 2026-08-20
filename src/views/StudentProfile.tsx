@@ -2,7 +2,7 @@
  * Rumiland Academy — Student Profile Page
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { studentService, registrationService, courseService, classService, paymentService, attendanceService } from '@/services';
 import { Card, EmptyState, Badge, Modal } from '@/components/Layout';
 import { Button, IconButton, Input, Textarea } from '@/components/Basic';
@@ -24,6 +24,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
   const [editing, setEditing] = useState(false);
   const [editData, setEditData] = useState<Partial<Student>>({});
   const [saving, setSaving] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string>('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadProfile();
@@ -35,6 +37,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
     if (s) {
       setStudent(s);
       setEditData({ ...s });
+      setAvatarPreview(s.avatar_url || '');
       const classes = await studentService.getStudentClasses(studentId);
       setRegistrations(classes);
       const p = await studentService.getStudentPayments(studentId);
@@ -45,6 +48,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
       setQuizResults(q);
     }
     setLoading(false);
+  };
+
+  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result || '');
+      setAvatarPreview(data);
+      setEditData((prev) => ({ ...prev, avatar_url: data }));
+    };
+    reader.readAsDataURL(f);
+    e.target.value = '';
   };
 
   const handleSave = async () => {
@@ -90,6 +106,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
           <IconButton onClick={onBack}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
           </IconButton>
+          <div style={{ width: 52, height: 52, borderRadius: '50%', overflow: 'hidden', background: 'var(--color-bg-secondary)', border: 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {avatarPreview
+              ? <img src={avatarPreview} alt="آواتار" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-tertiary)" strokeWidth="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+            }
+          </div>
           <div>
             <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>پروفایل شاگرد</h1>
             <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-tertiary)', marginTop: '0.25rem' }}>
@@ -106,6 +128,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({ studentId, onBac
           <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, marginBottom: '1rem' }}>اطلاعات شخصی</h3>
           {editing ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
+                <input ref={avatarInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: 'none' }} />
+                <Button size="sm" variant="secondary" onClick={() => avatarInputRef.current?.click()}>تغییر عکس پروفایل</Button>
+              </div>
               <Input label="نام" value={editData.first_name || ''} onChange={(e) => setEditData({ ...editData, first_name: e.target.value })} />
               <Input label="نام خانوادگی" value={editData.last_name || ''} onChange={(e) => setEditData({ ...editData, last_name: e.target.value })} />
               <Input label="کد ملی" value={editData.national_id || ''} onChange={(e) => setEditData({ ...editData, national_id: e.target.value })} />
