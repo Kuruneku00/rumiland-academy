@@ -73,6 +73,12 @@ export const AttendancePage: React.FC = () => {
     setHistoryLoading(false);
   };
 
+  const deleteAttendance = async (id: string, studentName: string, dateLabel: string) => {
+    if (!window.confirm(`آیا از حذف سابقه حضور «${studentName}» در تاریخ ${dateLabel} مطمئن هستید؟`)) return;
+    await db.attendance.delete(id);
+    loadHistory();
+  };
+
   const onAttCourseChange = async (courseId: string) => {
     setAttCourseId(courseId);
     setAttClassId('');
@@ -157,7 +163,7 @@ export const AttendancePage: React.FC = () => {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: 'var(--border-default)' }}>
-                {['دانشجو', 'کلاس', 'تاریخ', 'وضعیت', 'دقایق تاخیر'].map((h) => (
+                {['دانشجو', 'کلاس', 'تاریخ', 'وضعیت', 'دقایق تاخیر', ''].map((h) => (
                   <th key={h} style={{ padding: '0.75rem 1rem', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-tertiary)', textAlign: 'right' }}>{h}</th>
                 ))}
               </tr>
@@ -170,6 +176,9 @@ export const AttendancePage: React.FC = () => {
                   <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{displayJalali(r.date)}</td>
                   <td style={{ padding: '0.6rem 1rem' }}><span style={{ fontSize: 'var(--font-size-xs)', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-sm)', background: r.status === 'absent' ? 'var(--color-danger-light)' : r.status === 'present' ? 'var(--color-success-light)' : 'var(--color-warning-light)', color: r.status === 'absent' ? 'var(--color-danger)' : r.status === 'present' ? 'var(--color-success)' : 'var(--color-warning)' }}>{statusLabel(r.status)}</span></td>
                   <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{r.late_minutes || 0}</td>
+                  <td style={{ padding: '0.6rem 1rem', textAlign: 'left' }}>
+                    <button onClick={() => deleteAttendance(r.id, r.studentName, displayJalali(r.date))} title="حذف سابقه" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--color-danger)', fontSize: 'var(--font-size-md)', padding: '0.25rem 0.5rem', borderRadius: 'var(--radius-sm)', lineHeight: 1 }} aria-label="حذف">×</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
