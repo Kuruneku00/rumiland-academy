@@ -25,6 +25,7 @@ const money = (value: number) => `${Math.max(0, Number(value || 0)).toLocaleStri
 // برای نمایش مانده‌ی خالص که می‌تواند منفی باشد
 const moneySigned = (value: number) => `${(value < 0 ? '−' : '') + Math.abs(Number(value || 0)).toLocaleString('fa-IR')} تومان`;
 const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }); } catch { return d; } };
+const actionBtnStyle: React.CSSProperties = { background: 'none', border: 0, color: 'var(--color-primary)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', padding: '0.125rem 0', whiteSpace: 'nowrap' };
 const getRegistrationTotal = (r: RegistrationOption) => Math.max(0, (Number(r.total_amount) > 0 ? Number(r.total_amount) : Number(r.tuition_fee || 0) + Number(r.registration_fee || 0)) - Number(r.discount || 0));
 const getFirstInstallmentAmount = (r: RegistrationOption): number => {
   if (!r.installment_plan_json) return Number(r.tuition_fee || 0);
@@ -601,10 +602,18 @@ function PaymentsTab() {
 // ================================================================
 // مشترک: فرم تراکنش (درآمد/هزینه)
 // ================================================================
-function TransactionForm({ type, onSaved, onCancel }: { type: 'income' | 'expense'; onSaved: () => void; onCancel: () => void }) {
-  const [form, setForm] = useState({ title: '', amount: '', category: type === 'income' ? 'tuition' : 'salary', method: 'cash', description: '', date_jalali: '' });
+function TransactionForm({ type, onSaved, onCancel, initial }: { type: 'income' | 'expense'; onSaved: () => void; onCancel: () => void; initial?: FinanceTransaction | null }) {
+  const [form, setForm] = useState({
+    title: initial?.title || '',
+    amount: initial?.amount != null ? String(initial.amount) : '',
+    category: initial?.category || (type === 'income' ? 'tuition' : 'salary'),
+    method: (initial?.method || 'cash') as string,
+    description: initial?.description || '',
+    date_jalali: initial?.transaction_date_jalali || '',
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const isEdit = !!initial;
 
   const categories = type === 'income'
     ? [{ value: 'tuition', label: 'شهریه' }, { value: 'registration', label: 'هزینه ثبت‌نام' }, { value: 'other', label: 'سایر درآمد' }]
@@ -619,10 +628,17 @@ function TransactionForm({ type, onSaved, onCancel }: { type: 'income' | 'expens
     if (!form.amount || Number(form.amount) <= 0) { setError('مبلغ معتبر الزامی است'); return; }
     setSaving(true); setError('');
     try {
-      await financeService.createTransaction({
-        type, category: form.category, title: form.title, amount: Number(form.amount),
-        method: form.method as any, description: form.description || null, transaction_date_jalali: form.date_jalali || null,
-      });
+      if (isEdit && initial) {
+        await financeService.updateTransaction(initial.id, {
+          category: form.category, title: form.title, amount: Number(form.amount),
+          method: form.method as any, description: form.description || null, transaction_date_jalali: form.date_jalali || null,
+        });
+      } else {
+        await financeService.createTransaction({
+          type, category: form.category, title: form.title, amount: Number(form.amount),
+          method: form.method as any, description: form.description || null, transaction_date_jalali: form.date_jalali || null,
+        });
+      }
       onSaved();
     } catch (e: any) { setError(e.message); }
     setSaving(false);
@@ -639,9 +655,35 @@ function TransactionForm({ type, onSaved, onCancel }: { type: 'income' | 'expens
       <Textarea label="توضیحات" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
         <Button variant="secondary" onClick={onCancel} disabled={saving}>انصراف</Button>
-        <Button onClick={handleSave} disabled={saving}>{saving ? 'در حال ثبت...' : 'ثبت'}</Button>
+        <Button onClick={handleSave} disabled={saving}>{saving ? 'در حال ثبت...' : isEdit ? 'ذخیره تغییرات' : 'ثبت'}</Button>
       </div>
     </div>
+  );
+}
+
+// مودال جزئیات تراکنش مالی
+function TransactionDetails({ tx, onClose }: { tx: FinanceTransaction | null; onClose: () => void }) {
+  if (!tx) return null;
+  const rows: [string, string][] = [
+    ['عنوان', tx.title],
+    ['نوع', tx.type === 'income' ? 'درآمد' : 'هزینه'],
+    ['دسته‌بندی', financeCategoryLabel(tx.category)],
+    ['مبلغ', money(tx.amount)],
+    ['روش پرداخت', METHOD_LABELS[tx.method] || tx.method || '—'],
+    ['تاریخ', tx.transaction_date_jalali || formatDate(tx.transaction_date)],
+    ['توضیحات', tx.description || '—'],
+  ];
+  return (
+    <Modal isOpen onClose={onClose} title="جزئیات تراکنش" size="md" footer={<Button variant="secondary" onClick={onClose}>بستن</Button>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+        {rows.map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', gap: '1rem', padding: '0.5rem 0', borderBottom: '1px solid var(--border-default)' }}>
+            <div style={{ width: '120px', fontWeight: 600, color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>{k}</div>
+            <div style={{ flex: 1, fontSize: 'var(--font-size-sm)' }}>{v}</div>
+          </div>
+        ))}
+      </div>
+    </Modal>
   );
 }
 
@@ -652,6 +694,16 @@ function IncomeTab() {
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editing, setEditing] = useState<FinanceTransaction | null>(null);
+  const [viewing, setViewing] = useState<FinanceTransaction | null>(null);
+  const [deleting, setDeleting] = useState<FinanceTransaction | null>(null);
+
+  const handleDelete = async () => {
+    if (!deleting) return;
+    await financeService.deleteTransaction(deleting.id);
+    setDeleting(null);
+    await load();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -668,7 +720,13 @@ function IncomeTab() {
     { key: 'category', title: 'دسته‌بندی', render: (t) => financeCategoryLabel(t.category) },
     { key: 'amount', title: 'مبلغ', render: (t) => <strong style={{ color: 'var(--color-success)' }}>{money(t.amount)}</strong> },
     { key: 'method', title: 'روش', render: (t) => METHOD_LABELS[t.method] || '—' },
-    { key: 'desc', title: 'توضیحات', render: (t) => t.description || '—' },
+    { key: 'actions', title: 'عملیات', render: (t) => (
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap' }}>
+        <button onClick={() => setViewing(t)} title="جزئیات" style={actionBtnStyle}>جزئیات</button>
+        <button onClick={() => setEditing(t)} title="ویرایش" style={actionBtnStyle}>ویرایش</button>
+        <button onClick={() => setDeleting(t)} title="حذف" style={{ ...actionBtnStyle, color: 'var(--color-danger)' }}>حذف</button>
+      </div>
+    ) },
   ];
 
   return (
@@ -680,6 +738,16 @@ function IncomeTab() {
       <Table columns={columns} data={transactions} rowKey={(t) => t.id} isLoading={loading} emptyState={<EmptyState title="هیچ درآمدی ثبت نشده است" />} />
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="ثبت درآمد جدید" size="md">
         <TransactionForm type="income" onSaved={() => { setShowModal(false); load(); }} onCancel={() => setShowModal(false)} />
+      </Modal>
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="ویرایش درآمد" size="md">
+        <TransactionForm type="income" initial={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />
+      </Modal>
+      <TransactionDetails tx={viewing} onClose={() => setViewing(null)} />
+      <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="حذف درآمد" size="sm" footer={<>
+        <Button variant="secondary" onClick={() => setDeleting(null)}>انصراف</Button>
+        <Button onClick={handleDelete} style={{ background: 'var(--color-danger)', color: '#fff' }}>حذف</Button>
+      </>}>
+        <p style={{ margin: 0 }}>آیا از حذف «{deleting?.title}» مطمئن هستید؟ این عمل از درآمد کل کم می‌شود.</p>
       </Modal>
     </div>
   );
@@ -695,6 +763,8 @@ function ExpensesTab() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [deleting, setDeleting] = useState<FinanceTransaction | null>(null);
+  const [editing, setEditing] = useState<FinanceTransaction | null>(null);
+  const [viewing, setViewing] = useState<FinanceTransaction | null>(null);
 
   // هزینه ماهانه (recurring)
   const [showRecurringModal, setShowRecurringModal] = useState(false);
@@ -779,7 +849,13 @@ function ExpensesTab() {
     { key: 'category', title: 'دسته‌بندی', render: (t) => financeCategoryLabel(t.category) },
     { key: 'amount', title: 'مبلغ', render: (t) => <strong style={{ color: 'var(--color-danger)' }}>{money(t.amount)}</strong> },
     { key: 'method', title: 'روش', render: (t) => METHOD_LABELS[t.method] || '—' },
-    { key: 'actions', title: 'عملیات', render: (t) => <button onClick={() => setDeleting(t)} style={{ background: 'none', border: 0, color: 'var(--color-danger)', cursor: 'pointer', fontFamily: 'inherit' }}>حذف</button> },
+    { key: 'actions', title: 'عملیات', render: (t) => (
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap' }}>
+        <button onClick={() => setViewing(t)} title="جزئیات" style={actionBtnStyle}>جزئیات</button>
+        <button onClick={() => setEditing(t)} title="ویرایش" style={actionBtnStyle}>ویرایش</button>
+        <button onClick={() => setDeleting(t)} title="حذف" style={{ ...actionBtnStyle, color: 'var(--color-danger)' }}>حذف</button>
+      </div>
+    ) },
   ];
 
   return (
@@ -860,6 +936,12 @@ function ExpensesTab() {
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="ثبت هزینه جدید" size="md">
         <TransactionForm type="expense" onSaved={() => { setShowModal(false); load(); }} onCancel={() => setShowModal(false)} />
       </Modal>
+
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="ویرایش هزینه" size="md">
+        <TransactionForm type="expense" initial={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />
+      </Modal>
+
+      <TransactionDetails tx={viewing} onClose={() => setViewing(null)} />
 
       {/* مودال هزینه ماهانه */}
       <Modal isOpen={showRecurringModal} onClose={() => setShowRecurringModal(false)} title="ثبت هزینه ماهانه" size="md" footer={<><Button variant="secondary" onClick={() => setShowRecurringModal(false)} disabled={recurringSaving}>انصراف</Button><Button onClick={handleSaveRecurring} disabled={recurringSaving}>{recurringSaving ? 'در حال ثبت...' : 'ثبت هزینه ماهانه'}</Button></>}>
@@ -962,6 +1044,8 @@ function TransactionsTab() {
   const expense = filtered.filter((t) => t.type === 'expense').reduce((s, t) => s + Number(t.amount || 0), 0);
 
   const [deleting, setDeleting] = useState<FinanceTransaction | null>(null);
+  const [editing, setEditing] = useState<FinanceTransaction | null>(null);
+  const [viewing, setViewing] = useState<FinanceTransaction | null>(null);
   const handleDelete = async () => {
     if (!deleting) return;
     await financeService.deleteTransaction(deleting.id);
@@ -976,7 +1060,13 @@ function TransactionsTab() {
     { key: 'category', title: 'دسته‌بندی', render: (t) => financeCategoryLabel(t.category) },
     { key: 'amount', title: 'مبلغ', render: (t) => <strong style={{ color: t.type === 'income' ? 'var(--color-success)' : 'var(--color-danger)' }}>{t.type === 'income' ? '+' : '−'} {money(t.amount)}</strong> },
     { key: 'method', title: 'روش', render: (t) => METHOD_LABELS[t.method] || '—' },
-    { key: 'actions', title: 'عملیات', render: (t) => <button onClick={() => setDeleting(t)} style={{ background: 'none', border: 0, color: 'var(--color-danger)', cursor: 'pointer', fontFamily: 'inherit' }}>حذف</button> },
+    { key: 'actions', title: 'عملیات', render: (t) => (
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'nowrap' }}>
+        <button onClick={() => setViewing(t)} title="جزئیات" style={actionBtnStyle}>جزئیات</button>
+        <button onClick={() => setEditing(t)} title="ویرایش" style={actionBtnStyle}>ویرایش</button>
+        <button onClick={() => setDeleting(t)} title="حذف" style={{ ...actionBtnStyle, color: 'var(--color-danger)' }}>حذف</button>
+      </div>
+    ) },
   ];
 
   return (
@@ -991,6 +1081,10 @@ function TransactionsTab() {
         <Select placeholder="همه انواع" value={typeFilter} onChange={setTypeFilter} options={[{ value: 'income', label: 'درآمد' }, { value: 'expense', label: 'هزینه' }]} />
       </div>
       <Table columns={columns} data={filtered} rowKey={(t) => t.id} isLoading={loading} emptyState={<EmptyState title="هیچ تراکنشی ثبت نشده است" />} />
+      <Modal isOpen={!!editing} onClose={() => setEditing(null)} title="ویرایش تراکنش" size="md">
+        <TransactionForm type={editing?.type || 'expense'} initial={editing} onSaved={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />
+      </Modal>
+      <TransactionDetails tx={viewing} onClose={() => setViewing(null)} />
       <Modal isOpen={!!deleting} onClose={() => setDeleting(null)} title="حذف تراکنش" size="sm" footer={<><Button variant="secondary" onClick={() => setDeleting(null)}>انصراف</Button><Button variant="danger" onClick={handleDelete}>حذف</Button></>}>
         <p style={{ color: 'var(--color-text-secondary)' }}>آیا از حذف این تراکنش مالی اطمینان دارید؟</p>
       </Modal>
