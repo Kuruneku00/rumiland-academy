@@ -922,6 +922,72 @@ export class PaymentService extends BaseService<Payment> {
       return { success: false, error: err.message };
     }
   }
+
+  /**
+   * ثبت/ویرایش تخفیف روی یک ثبت‌نام.
+   * تخفیف مستقیماً ذخیره می‌شود و مبلغ نهایی (total_amount) نیز با توجه به
+   * شهریه + هزینه ثبت‌نام − تخفیف بازمحاسبه و ذخیره می‌گردد.
+   * برنامه اقساط در صورت تک‌قسطی یا دو قسطی بودن به‌روزرسانی می‌شود.
+   */
+  async setRegistrationDiscount(
+    registrationId: string,
+    discount: number
+  ): Promise<{ success: boolean; data?: Registration; error?: string }> {
+    try {
+      const reg = await db.registrations.get(registrationId);
+      if (!reg) return { success: false, error: 'ثبت‌نام یافت نشد' };
+
+      const newDiscount = Math.max(0, Number(discount || 0));
+
+      // شهریه‌ی مبنای محاسبه: اگر ثبت نشده بود، از دوره بخوانیم.
+      let tuition = Number(reg.tuition_fee || 0);
+      if (tuition <= 0) {
+        const courseId = reg.course_id || (reg.class_id ? (await db.classes.get(reg.class_id))?.course_id : undefined);
+        if (courseId) {
+          const course = await db.courses.get(courseId);
+          if (course && Number(course.tuition_fee || 0) > 0) tuition = Number(course.tuition_fee);
+        }
+      }
+      const registrationFee = Number(reg.registration_fee || 0);
+      const newTotal = Math.max(0, tuition + registrationFee - newDiscount);
+
+      let installments = reg.installments || 1;
+      let planJson = reg.installment_plan_json;
+      try {
+        const plan = planJson ? JSON.parse(planJson) : [];
+        const hasExplicitPlan = Array.isArray(plan) && plan.length > 0 && plan.some((p: any) => p.title && !/قسط کامل|قسط اول|قسط دوم/.test(p.title || ''));
+        if (!hasExplicitPlan) {
+          let newPlan: Array<{ number: number; amount: number; due_date?: string; title: string }> = [];
+          if (installments === 2) {
+            const first = Math.floor(newTotal / 2);
+            newPlan = [
+              { number: 1, amount: first, due_date: new Date().toISOString().split('T')[0], title: 'قسط اول' },
+              { number: 2, amount: newTotal - first, due_date: '', title: 'قسط دوم' },
+            ];
+          } else {
+            newPlan = [{ number: 1, amount: newTotal, due_date: new Date().toISOString().split('T')[0], title: 'قسط کامل' }];
+          }
+          planJson = JSON.stringify(newPlan);
+        }
+      } catch {
+        planJson = JSON.stringify([{ number: 1, amount: newTotal, due_date: new Date().toISOString().split('T')[0], title: 'قسط کامل' }]);
+      }
+
+      await db.registrations.update(registrationId, {
+        discount: newDiscount,
+        total_amount: newTotal,
+        installment_plan_json: planJson,
+        updated_at: new Date().toISOString(),
+      } as any);
+
+      await persistRegistrationFigures(registrationId);
+      const updated = await db.registrations.get(registrationId);
+
+      return { success: true, data: updated || undefined };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
 }
 
 // ================================================================

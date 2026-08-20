@@ -45,7 +45,10 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = { paid: 'پرداخت شد
 function SummaryBox({ title, value, color }: { title: string; value: string; color: string }) {
   return <Card padding="1rem" style={{ textAlign: 'center' }}><div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginBottom: '0.25rem' }}>{title}</div><div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color }}>{value}</div></Card>;
 }
-function FinanceMini({ title, value, danger = false }: { title: string; value: string; danger?: boolean }) {
+function FinanceMini({ title, value, danger = false, onClick, actionLabel }: { title: string; value: string; danger?: boolean; onClick?: () => void; actionLabel?: string }) {
+  if (onClick) {
+    return <button onClick={onClick} style={{ padding: '0.8rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', border: '1px dashed var(--color-primary-400)', cursor: 'pointer', textAlign: 'right', fontFamily: 'inherit', width: '100%' }} title={actionLabel || `ثبت ${title}`}><div style={{ color: 'var(--color-primary-400)', fontSize: 'var(--font-size-xs)', marginBottom: '0.25rem' }}>{actionLabel || `ثبت ${title}`}</div><div style={{ fontWeight: 700, color: danger ? 'var(--color-danger)' : 'var(--color-text-primary)' }}>{value}</div></button>;
+  }
   return <div style={{ padding: '0.8rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)' }}><div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)', marginBottom: '0.25rem' }}>{title}</div><div style={{ fontWeight: 700, color: danger ? 'var(--color-danger)' : 'var(--color-text-primary)' }}>{value}</div></div>;
 }
 
@@ -148,6 +151,10 @@ function PaymentsTab() {
   const [showDetailPayment, setShowDetailPayment] = useState<Payment | null>(null);
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [editForm, setEditForm] = useState({ amount: '', method: 'cash', payment_date_jalali: '', description: '' });
+  const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [discountValue, setDiscountValue] = useState('');
+  const [savingDiscount, setSavingDiscount] = useState(false);
+  const [discountError, setDiscountError] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formSaving, setFormSaving] = useState(false);
 
@@ -320,6 +327,30 @@ function PaymentsTab() {
     } finally { setFormSaving(false); }
   };
 
+  /** باز کردن مودال ثبت تخفیف */
+  const openDiscountModal = () => {
+    if (!selectedRegistration) return;
+    setDiscountValue(selectedRegistration.discount ? String(selectedRegistration.discount) : '');
+    setDiscountError('');
+    setShowDiscountModal(true);
+  };
+
+  /** ذخیره تخفیف ثبت‌نام */
+  const handleSaveDiscount = async () => {
+    if (!selectedRegistration) return;
+    const val = Number(discountValue);
+    if (discountValue.trim() === '' || !isFinite(val) || val < 0) { setDiscountError('مبلغ تخفیف معتبر وارد کنید'); return; }
+    setSavingDiscount(true);
+    try {
+      const res = await paymentService.setRegistrationDiscount(selectedRegistration.id, val);
+      if (!res.success) { setDiscountError(res.error || 'خطا در ثبت تخفیف'); return; }
+      setShowDiscountModal(false);
+      await loadPayments(); await loadRegistrations(selectedRegistration.student_id); await loadRegistrationPayments(selectedRegistration.id);
+      const fresh = (await registrationService.getAll()).find((r: any) => r.id === selectedRegistration.id) || null;
+      setSelectedRegistration(fresh as any);
+    } finally { setSavingDiscount(false); }
+  };
+
   const handleDelete = async () => {
     if (!deletingPayment) return;
     const result = await paymentService.deletePayment(deletingPayment.id);
@@ -413,7 +444,7 @@ function PaymentsTab() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <FinanceMini title={classMeta?.type === 'private' ? 'شهریه ماهانه تکی' : 'شهریه'} value={money(classMeta?.type === 'private' ? getFirstInstallmentAmount(selectedRegistration) : selectedRegistration.tuition_fee)} />
             <FinanceMini title="هزینه ثبت‌نام" value={money(selectedRegistration.registration_fee)} />
-            <FinanceMini title="تخفیف" value={money(selectedRegistration.discount)} />
+            <FinanceMini title="تخفیف" value={money(selectedRegistration.discount)} onClick={openDiscountModal} />
             <FinanceMini title={classMeta?.type === 'private' ? 'شهریه کل امسال' : 'مبلغ نهایی'} value={money(registrationTotal)} />
             <FinanceMini title="پرداخت‌شده" value={money(registrationPaid)} />
             <FinanceMini title="مانده بدهی" value={money(registrationRemaining)} danger={registrationRemaining > 0} />
@@ -533,6 +564,16 @@ function PaymentsTab() {
           <Select label="روش پرداخت" value={editForm.method} onChange={(v) => setEditForm({ ...editForm, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال بانکی' }, { value: 'check', label: 'چک' }]} />
           <Input label="تاریخ پرداخت (جلالی)" value={editForm.payment_date_jalali} onChange={(e) => setEditForm({ ...editForm, payment_date_jalali: e.target.value })} placeholder="۱۴۰۵/۰۵/۲۸" />
           <Textarea label="توضیحات" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+        </div>
+      </Modal>
+
+      {/* ثبت / ویرایش تخفیف */}
+      <Modal isOpen={showDiscountModal} onClose={() => setShowDiscountModal(false)} title="ثبت تخفیف" size="sm" footer={<><Button variant="secondary" onClick={() => setShowDiscountModal(false)} disabled={savingDiscount}>انصراف</Button><Button onClick={handleSaveDiscount} disabled={savingDiscount}>{savingDiscount ? 'در حال ذخیره...' : 'ذخیره تخفیف'}</Button></>}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <div style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>ثبت‌نام: <strong>{selectedRegistration?.registration_number}</strong></div>
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>مبلغ نهایی = شهریه + هزینه ثبت‌نام − تخفیف</div>
+          {discountError && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{discountError}</div>}
+          <Input label="مبلغ تخفیف (تومان)" type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} placeholder="مثلاً 500000" />
         </div>
       </Modal>
     </div>
