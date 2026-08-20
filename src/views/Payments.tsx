@@ -137,6 +137,7 @@ function PaymentsTab() {
   const [formSaving, setFormSaving] = useState(false);
 
   const [formData, setFormData] = useState({ student_id: '', registration_id: '', amount: '', installment_number: '', payment_date_jalali: '', method: 'cash', description: '' });
+  const [debtOverride, setDebtOverride] = useState<string>('');
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -167,17 +168,24 @@ function PaymentsTab() {
   const handleStudentChange = async (studentId: string) => {
     setFormData((c) => ({ ...c, student_id: studentId, registration_id: '', amount: '', installment_number: '' }));
     setSelectedRegistration(null); setSelectedInstallment(null); setRegistrationPayments([]);
+    setDebtOverride('');
     await loadRegistrations(studentId);
   };
   const handleRegistrationChange = async (registrationId: string) => {
     const registration = registrationsList.find((r) => r.id === registrationId) || null;
     setSelectedRegistration(registration); setSelectedInstallment(null);
+    const total = registration ? getRegistrationTotal(registration) : 0;
+    setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
     await loadRegistrationPayments(registrationId);
   };
 
   const registrationPaid = useMemo(() => registrationPayments.reduce((s, p) => s + Number(p.amount || 0), 0), [registrationPayments]);
-  const registrationTotal = selectedRegistration ? getRegistrationTotal(selectedRegistration) : 0;
+  const registrationTotal = selectedRegistration
+    ? (debtOverride !== '' && !isNaN(Number(debtOverride)) && Number(debtOverride) > 0
+        ? Number(debtOverride)
+        : getRegistrationTotal(selectedRegistration))
+    : 0;
   const registrationRemaining = Math.max(0, registrationTotal - registrationPaid);
   const plan = selectedRegistration ? getPlan(selectedRegistration) : [];
 
@@ -198,7 +206,9 @@ function PaymentsTab() {
     if (!formData.student_id) errors.student_id = 'انتخاب شاگرد الزامی است';
     if (!formData.registration_id) errors.registration_id = 'انتخاب ثبت‌نام الزامی است';
     if (!formData.amount || Number(formData.amount) <= 0) errors.amount = 'مبلغ نامعتبر است';
-    if (selectedRegistration && Number(formData.amount) > registrationRemaining) errors.amount = `مبلغ بیشتر از مانده بدهی است: ${money(registrationRemaining)}`;
+    // اگر مبلغ کل (شهریه) تعیین شده باشد، مانده بدهی محاسبه و محدود می‌شود.
+    // اگر شهریه هنوز صفر است (ثبت‌نام بدون شهریه)، مبلغ آزادانه وارد می‌شود.
+    if (selectedRegistration && registrationTotal > 0 && Number(formData.amount) > registrationRemaining) errors.amount = `مبلغ بیشتر از مانده بدهی است: ${money(registrationRemaining)}`;
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -320,10 +330,15 @@ function PaymentsTab() {
             <Select label="ثبت‌نام" placeholder={formData.student_id ? 'انتخاب ثبت‌نام...' : 'ابتدا شاگرد را انتخاب کنید'} value={formData.registration_id} onChange={handleRegistrationChange} disabled={!formData.student_id} error={formErrors.registration_id} options={registrationsList.map((r) => ({ value: r.id, label: `${r.registration_number} — ${money(getRegistrationTotal(r))}` }))} />
           </>)}
           {selectedRegistration && (
-            <div style={{ padding: '1rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)' }}>
-              <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>مانده بدهی</div>
-              <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: registrationRemaining > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{money(registrationRemaining)}</div>
-            </div>
+            <>
+              {getRegistrationTotal(selectedRegistration) <= 0 && (
+                <Input label="مبلغ شهریه / بدهی کل (تومان)" type="number" value={debtOverride} onChange={(e) => setDebtOverride(e.target.value)} placeholder="مبلغ کل بدهی این شاگرد را وارد کنید" />
+              )}
+              <div style={{ padding: '1rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)' }}>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>مانده بدهی</div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: registrationRemaining > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{money(registrationRemaining)}</div>
+              </div>
+            </>
           )}
           <Input label="مبلغ پرداخت (تومان)" type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} error={formErrors.amount} />
           <Input label="تاریخ پرداخت (جلالی)" value={formData.payment_date_jalali} onChange={(e) => setFormData({ ...formData, payment_date_jalali: e.target.value })} placeholder="۱۴۰۵/۰۵/۲۸" />
