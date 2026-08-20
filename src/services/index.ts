@@ -950,7 +950,10 @@ export class PaymentService extends BaseService<Payment> {
         }
       }
       const registrationFee = Number(reg.registration_fee || 0);
-      const newTotal = Math.max(0, tuition + registrationFee - newDiscount);
+      // مبلغ پایه (ناخالص): شهریه + هزینه‌ی ثبت‌نام. تخفیف جداگانه نگه داشته می‌شود تا
+      // registrationTotal با کم کردن discount، مبلغ نهایی را درست حساب کند.
+      const baseTotal = Math.max(0, tuition + registrationFee);
+      const newTotal = Math.max(0, baseTotal - newDiscount);
 
       let installments = reg.installments || 1;
       let planJson = reg.installment_plan_json;
@@ -977,7 +980,7 @@ export class PaymentService extends BaseService<Payment> {
       await db.registrations.update(registrationId, {
         discount: newDiscount,
         tuition_fee: tuition,
-        total_amount: newTotal,
+        total_amount: baseTotal,
         installment_plan_json: planJson,
         updated_at: new Date().toISOString(),
       } as any);

@@ -30,15 +30,14 @@ import { v4 as uuid } from 'uuid';
 
 /** مبلغ کل قابل پرداخت یک ثبت‌نام */
 export function registrationTotal(r: Registration): number {
-  const explicit = Number(r.total_amount);
-  if (explicit > 0) return explicit;
-  // اگر total_amount صفر یا نامعتبر بود، شهریه + هزینه ثبت‌نام − تخفیف را حساب کن
-  return Math.max(
-    0,
-    Number(r.tuition_fee || 0) +
-      Number(r.registration_fee || 0) -
-      Number(r.discount || 0)
-  );
+  // مبلغ پایه‌ی قابل پرداخت: اگر total_amount ثبت شده باشد (شهریه‌ی ناخالص) از آن استفاده می‌کنیم،
+  // وگرنه شهریه + هزینه‌ی ثبت‌نام.
+  const base =
+    Number(r.total_amount) > 0
+      ? Number(r.total_amount)
+      : Number(r.tuition_fee || 0) + Number(r.registration_fee || 0);
+  // تخفیف باید همیشه از مبلغ پایه کم شود.
+  return Math.max(0, base - Number(r.discount || 0));
 }
 
 /**

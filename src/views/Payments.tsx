@@ -22,7 +22,7 @@ interface PaymentRow { payment: Payment; studentName: string; className: string;
 
 const money = (value: number) => `${Math.max(0, Number(value || 0)).toLocaleString('fa-IR')} تومان`;
 const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }); } catch { return d; } };
-const getRegistrationTotal = (r: RegistrationOption) => Number(r.total_amount ?? (Number(r.tuition_fee || 0) + Number(r.registration_fee || 0) - Number(r.discount || 0)));
+const getRegistrationTotal = (r: RegistrationOption) => Math.max(0, (Number(r.total_amount) > 0 ? Number(r.total_amount) : Number(r.tuition_fee || 0) + Number(r.registration_fee || 0)) - Number(r.discount || 0));
 const getFirstInstallmentAmount = (r: RegistrationOption): number => {
   if (!r.installment_plan_json) return Number(r.tuition_fee || 0);
   try {
@@ -228,7 +228,8 @@ function PaymentsTab() {
   const handleRegistrationChange = async (registrationId: string) => {
     const registration = registrationsList.find((r) => r.id === registrationId) || null;
     setSelectedRegistration(registration); setSelectedInstallment(null);
-    let total = registration ? getRegistrationTotal(registration) : 0;
+    // مبلغ ناخالص شهریه (بدون کسر تخفیف) برای فیلد debtOverride؛ تخفیف جداگانه است.
+    let total = registration ? (Number(registration.total_amount) > 0 ? Number(registration.total_amount) : Number(registration.tuition_fee || 0) + Number(registration.registration_fee || 0)) : 0;
     // اگر شهریه در ثبت‌نام صفر است، از دوره‌ی مربوطه بخوانیم
     if (total <= 0 && registration) {
       const cls = registration.class_id ? await db.classes.get(registration.class_id) : null;
@@ -288,7 +289,7 @@ function PaymentsTab() {
   const registrationTotal = selectedRegistration
     ? (debtOverride !== '' && !isNaN(Number(debtOverride)) && Number(debtOverride) > 0
         ? Math.max(0, Number(debtOverride) - discountValueNum)
-        : Math.max(0, getRegistrationTotal(selectedRegistration) - discountValueNum))
+        : Math.max(0, getRegistrationTotal(selectedRegistration)))
     : 0;
   const registrationRemaining = Math.max(0, registrationTotal - registrationPaid);
   const plan = selectedRegistration ? getPlan(selectedRegistration) : [];
