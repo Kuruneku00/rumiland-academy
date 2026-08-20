@@ -23,6 +23,14 @@ interface PaymentRow { payment: Payment; studentName: string; className: string;
 const money = (value: number) => `${Math.max(0, Number(value || 0)).toLocaleString('fa-IR')} تومان`;
 const formatDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' }); } catch { return d; } };
 const getRegistrationTotal = (r: RegistrationOption) => Number(r.total_amount ?? (Number(r.tuition_fee || 0) + Number(r.registration_fee || 0) - Number(r.discount || 0)));
+const getFirstInstallmentAmount = (r: RegistrationOption): number => {
+  if (!r.installment_plan_json) return Number(r.tuition_fee || 0);
+  try {
+    const parsed = JSON.parse(r.installment_plan_json);
+    if (Array.isArray(parsed) && parsed.length > 0) return Number(parsed[0].amount || 0);
+    return Number(r.tuition_fee || 0);
+  } catch { return Number(r.tuition_fee || 0); }
+};
 const getPlan = (r: RegistrationOption): Installment[] => {
   if (!r.installment_plan_json) {
     const total = getRegistrationTotal(r);
@@ -129,6 +137,7 @@ function PaymentsTab() {
   const [registrationsList, setRegistrationsList] = useState<RegistrationOption[]>([]);
   const [classOptions, setClassOptions] = useState<Array<{ id: string; label: string; registrationId: string; tuition: number }>>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
+  const [classMeta, setClassMeta] = useState<{ type: 'group' | 'private'; label: string } | null>(null);
   const [selectedRegistration, setSelectedRegistration] = useState<RegistrationOption | null>(null);
   const [registrationPayments, setRegistrationPayments] = useState<Payment[]>([]);
   const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
@@ -202,6 +211,7 @@ function PaymentsTab() {
     setDebtOverride(opt.tuition > 0 ? String(opt.tuition) : '');
     setFormData((c) => ({ ...c, registration_id: opt.registrationId, amount: '', installment_number: '' }));
     if (opt.registrationId) await loadRegistrationPayments(opt.registrationId);
+    await loadClassMeta(registration);
   };
   const handleRegistrationChange = async (registrationId: string) => {
     const registration = registrationsList.find((r) => r.id === registrationId) || null;
@@ -217,6 +227,7 @@ function PaymentsTab() {
     setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
     await loadRegistrationPayments(registrationId);
+    await loadClassMeta(registration);
   };
 
   /** ذخیره شهریه کل در دیتابیس، تا پرداخت‌ها بر اساس آن محاسبه شوند */
@@ -242,6 +253,15 @@ function PaymentsTab() {
   const setPayFull = () => {
     if (registrationRemaining > 0) setFormData((c) => ({ ...c, amount: String(registrationRemaining) }));
   };
+
+  const loadClassMeta = useCallback(async (reg: RegistrationOption | null) => {
+    if (!reg || !reg.class_id) { setClassMeta(null); return; }
+    try {
+      const cls = await db.classes.get(reg.class_id);
+      if (cls) setClassMeta({ type: cls.type, label: cls.code || '' });
+      else setClassMeta(null);
+    } catch { setClassMeta(null); }
+  }, []);
 
   const registrationPaid = useMemo(() => registrationPayments.reduce((s, p) => s + Number(p.amount || 0), 0), [registrationPayments]);
   const registrationTotal = selectedRegistration
@@ -342,14 +362,17 @@ function PaymentsTab() {
             <div>
               <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>پرونده مالی ثبت‌نام</div>
               <h2 style={{ margin: '0.25rem 0', fontSize: 'var(--font-size-lg)' }}>{selectedRegistration.registration_number}</h2>
+              {classMeta && (
+                <Badge variant={classMeta.type === 'private' ? 'info' : 'neutral'}>{classMeta.type === 'private' ? 'کلاس خصوصی' : 'کلاس گروهی'}{classMeta.label ? ` — ${classMeta.label}` : ''}</Badge>
+              )}
             </div>
             <Badge variant={registrationRemaining <= 0 ? 'success' : registrationPaid > 0 ? 'warning' : 'danger'}>{registrationRemaining <= 0 ? 'تسویه کامل' : registrationPaid > 0 ? 'پرداخت ناقص' : 'بدهکار'}</Badge>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
-            <FinanceMini title="شهریه" value={money(selectedRegistration.tuition_fee)} />
+            <FinanceMini title={classMeta?.type === 'private' ? 'شهریه ماهانه تکی' : 'شهریه'} value={money(classMeta?.type === 'private' ? getFirstInstallmentAmount(selectedRegistration) : selectedRegistration.tuition_fee)} />
             <FinanceMini title="هزینه ثبت‌نام" value={money(selectedRegistration.registration_fee)} />
             <FinanceMini title="تخفیف" value={money(selectedRegistration.discount)} />
-            <FinanceMini title="مبلغ نهایی" value={money(registrationTotal)} />
+            <FinanceMini title={classMeta?.type === 'private' ? 'شهریه کل امسال' : 'مبلغ نهایی'} value={money(registrationTotal)} />
             <FinanceMini title="پرداخت‌شده" value={money(registrationPaid)} />
             <FinanceMini title="مانده بدهی" value={money(registrationRemaining)} danger={registrationRemaining > 0} />
           </div>
@@ -429,8 +452,11 @@ function PaymentsTab() {
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             <Input label="مبلغ پرداخت (تومان)" type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} error={formErrors.amount} />
-            {selectedRegistration && registrationRemaining > 0 && (
+            {selectedRegistration && !selectedInstallment && registrationRemaining > 0 && (
               <Button variant="ghost" onClick={setPayFull} style={{ alignSelf: 'flex-start', fontSize: 'var(--font-size-xs)' }}>⚡ پرداخت کامل مانده ({money(registrationRemaining)})</Button>
+            )}
+            {selectedInstallment && (
+              <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>در حال ثبت پرداخت برای: <strong>{selectedInstallment.title || `قسط ${selectedInstallment.number}`}</strong> — مبلغ قابل پرداخت: {money(installmentRemaining(selectedInstallment))}</div>
             )}
           </div>
           <Input label="تاریخ پرداخت (جلالی)" value={formData.payment_date_jalali} onChange={(e) => setFormData({ ...formData, payment_date_jalali: e.target.value })} placeholder="۱۴۰۵/۰۵/۲۸" />
