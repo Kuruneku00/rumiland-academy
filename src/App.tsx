@@ -34,7 +34,7 @@ const App: React.FC = () => {
     switch (currentPage) {
       case 'dashboard': return <DashboardPage />;
       case 'students': return <StudentsPage onViewProfile={handleViewStudent} />;
-      case 'courses': return <CoursesPage />;
+      case 'courses': return <CoursesPage onViewProfile={handleViewStudent} />;
       case 'registrations': return <RegistrationAttendancePage onViewProfile={handleViewStudent} />;
       case 'attendance': return <AttendancePage />;
       case 'payments': return <PaymentsPage />;

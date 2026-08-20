@@ -10,7 +10,9 @@ import type { Column } from '@/components/Layout';
 import type { Course, Class, Student, Registration, Payment, Attendance } from '@/db/schema';
 import { db } from '@/db/schema';
 
-export const CoursesPage: React.FC = () => {
+interface CoursesPageProps { onViewProfile?: (studentId: string) => void; }
+
+export const CoursesPage: React.FC<CoursesPageProps> = ({ onViewProfile }) => {
   const { courses, classes, courseTotal, classTotal, courseFilters, classFilters, isLoading } = useCourseClassStore();
   const [activeView, setActiveView] = useState<'courses' | 'classes'>('courses');
   const [showAddCourse, setShowAddCourse] = useState(false);
@@ -604,13 +606,16 @@ export const CoursesPage: React.FC = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {classStudents.map(({ student, reg }) => (
                   <div key={student.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)' }}>
-                    <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <span style={{ fontWeight: 500, fontSize: 'var(--font-size-sm)' }}>{student.first_name} {student.last_name}</span>
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginRight: '0.75rem' }}>{reg.registration_number}</span>
+                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>{reg.registration_number}</span>
                     </div>
-                    <Badge variant={reg.payment_status === 'paid' ? 'success' : reg.payment_status === 'overdue' ? 'danger' : 'warning'} size="sm">
-                      {reg.payment_status === 'paid' ? 'پرداخت شده' : reg.payment_status === 'overdue' ? 'معوق' : 'در انتظار'}
-                    </Badge>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <Badge variant={reg.payment_status === 'paid' ? 'success' : reg.payment_status === 'overdue' ? 'danger' : 'warning'} size="sm">
+                        {reg.payment_status === 'paid' ? 'پرداخت شده' : reg.payment_status === 'overdue' ? 'معوق' : 'در انتظار'}
+                      </Badge>
+                      <button onClick={(e) => { e.stopPropagation(); onViewProfile?.(student.id); }} style={{ background: 'none', border: 'none', color: 'var(--color-accent-400)', cursor: 'pointer', fontSize: 'var(--font-size-xs)', fontFamily: 'inherit', fontWeight: 500 }}>مشاهده پروفایل</button>
+                    </div>
                   </div>
                 ))}
               </div>

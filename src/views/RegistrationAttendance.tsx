@@ -10,7 +10,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { registrationService, studentService, courseService, classService, teacherService } from '@/services';
 import { Card, EmptyState, Table, Pagination, Badge, Modal, StatCard } from '@/components/Layout';
-import { Button, Select } from '@/components/Basic';
+import { Button, Select, SearchableSelect } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
 import { db } from '@/db/schema';
 
@@ -382,8 +382,9 @@ function RegistrationFormFields(props: FieldProps) {
         </div>
       </div>
 
-      <Select label="شاگرد" placeholder="انتخاب شاگرد..." value={regForm.student_id}
-        options={students.map((s: any) => ({ value: s.id, label: `${s.first_name} ${s.last_name}` }))}
+      <SearchableSelect label="شاگرد" placeholder="انتخاب شاگرد..." searchPlaceholder="جستجوی نام / کد ملی..."
+        value={regForm.student_id}
+        options={students.map((s: any) => ({ value: s.id, label: `${s.first_name} ${s.last_name}${s.national_id ? ' — ' + s.national_id : ''}` }))}
         onChange={(v) => setRegForm({ ...regForm, student_id: v })} />
 
       <Select label="دوره" placeholder="انتخاب دوره..." value={regForm.course_id}

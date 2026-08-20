@@ -3,7 +3,7 @@
  * Part 1: Basic Components (Button, Input, Select, Badge, Card, etc.)
  */
 
-import React, { useState, useEffect, useMemo, type ReactNode, type CSSProperties, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
+import React, { useState, useEffect, useMemo, useRef, type ReactNode, type CSSProperties, type ButtonHTMLAttributes, type InputHTMLAttributes } from 'react';
 import clsx from 'clsx';
 
 // ================================================================
@@ -116,3 +116,101 @@ interface SkeletonProps { width?: number | string; height?: number | string; sty
 export const Skeleton: React.FC<SkeletonProps> = ({ width = '100%', height = 16, style }) => (
   <div style={{ width, height, background: 'var(--color-surface)', borderRadius: 'var(--radius-sm)', animation: 'skeletonPulse 1.5s ease infinite', ...style }} />
 );
+
+// ================================================================
+// SEARCHABLE SELECT (انتخاب با جستجو)
+// ================================================================
+interface SearchableSelectProps {
+  label?: string;
+  placeholder?: string;
+  searchPlaceholder?: string;
+  options: Array<{ value: string; label: string }>;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  disabled?: boolean;
+}
+export const SearchableSelect: React.FC<SearchableSelectProps> = ({ label, placeholder = 'انتخاب کنید...', searchPlaceholder = 'جستجو...', options, value, onChange, error, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const selectedLabel = options.find((o) => o.value === value)?.label;
+
+  const filtered = query.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  return (
+    <div ref={rootRef} style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', position: 'relative' }}>
+      {label && <label style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)' }}>{label}</label>}
+
+      {/* نمایش انتخاب / دکمه باز شدن */}
+      <div
+        onClick={() => { if (!disabled) { setOpen(!open); setQuery(''); } }}
+        style={{
+          height: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 0.75rem', background: 'var(--color-input)', border: error ? 'var(--border-error)' : 'var(--border-default)',
+          borderRadius: 'var(--radius-input)', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
+          fontSize: 'var(--font-size-md)', color: selectedLabel ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)'
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedLabel || placeholder}</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0, color: 'var(--color-text-tertiary)' }}><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+
+      {/* منوی بازشو */}
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, left: 0, zIndex: 50,
+          marginTop: '0.25rem', background: 'var(--color-surface)', border: 'var(--border-default)',
+          borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-lg)', overflow: 'hidden', maxHeight: 280, display: 'flex', flexDirection: 'column'
+        }}>
+          <div style={{ padding: '0.5rem', borderBottom: 'var(--border-thin)' }}>
+            <div style={{ position: 'relative' }}>
+              <svg style={{ position: 'absolute', right: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-tertiary)' }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input
+                autoFocus
+                type="text"
+                placeholder={searchPlaceholder}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                style={{ width: '100%', height: 34, padding: '0 2rem 0 0.5rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+          </div>
+          <div style={{ overflowY: 'auto' }}>
+            {filtered.length === 0 ? (
+              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-sm)' }}>موردی یافت نشد</div>
+            ) : filtered.map((opt) => (
+              <div
+                key={opt.value}
+                onClick={() => { onChange(opt.value); setOpen(false); setQuery(''); }}
+                style={{
+                  padding: '0.6rem 0.75rem', cursor: 'pointer', fontSize: 'var(--font-size-sm)',
+                  background: opt.value === value ? 'var(--color-sidebar-active)' : 'transparent',
+                  color: opt.value === value ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                  borderBottom: 'var(--border-thin)'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-hover)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = opt.value === value ? 'var(--color-sidebar-active)' : 'transparent'; }}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {error && <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>{error}</span>}
+    </div>
+  );
+};
