@@ -139,6 +139,7 @@ function PaymentsTab() {
 
   const [formData, setFormData] = useState({ student_id: '', registration_id: '', amount: '', installment_number: '', payment_date_jalali: '', method: 'cash', description: '' });
   const [debtOverride, setDebtOverride] = useState<string>('');
+  const [savingTuition, setSavingTuition] = useState(false);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -188,6 +189,30 @@ function PaymentsTab() {
     setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
     await loadRegistrationPayments(registrationId);
+  };
+
+  /** ذخیره شهریه کل در دیتابیس، تا پرداخت‌ها بر اساس آن محاسبه شوند */
+  const handleSaveTuition = async () => {
+    if (!selectedRegistration) return;
+    const total = Number(debtOverride);
+    if (!isFinite(total) || total <= 0) { setFormErrors((e) => ({ ...e, tuition: 'مبلغ شهریه معتبر وارد کنید' })); return; }
+    setSavingTuition(true);
+    try {
+      const res = await paymentService.setRegistrationTotal(selectedRegistration.id, total);
+      if (res.success && res.data) {
+        setSelectedRegistration(res.data as any);
+        await loadRegistrationPayments(selectedRegistration.id);
+        await loadPayments();
+        await loadRegistrations(res.data.student_id);
+      } else {
+        setFormErrors((e) => ({ ...e, tuition: res.error || 'خطا در ذخیره شهریه' }));
+      }
+    } finally { setSavingTuition(false); }
+  };
+
+  /** تعیین سریع مبلغ پرداخت = کل مانده */
+  const setPayFull = () => {
+    if (registrationRemaining > 0) setFormData((c) => ({ ...c, amount: String(registrationRemaining) }));
   };
 
   const registrationPaid = useMemo(() => registrationPayments.reduce((s, p) => s + Number(p.amount || 0), 0), [registrationPayments]);
@@ -341,16 +366,39 @@ function PaymentsTab() {
           </>)}
           {selectedRegistration && (
             <>
-              {getRegistrationTotal(selectedRegistration) <= 0 && (
-                <Input label="مبلغ شهریه / بدهی کل (تومان)" type="number" value={debtOverride} onChange={(e) => setDebtOverride(e.target.value)} placeholder="مبلغ کل بدهی این شاگرد را وارد کنید" />
-              )}
-              <div style={{ padding: '1rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)' }}>
-                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)' }}>مانده بدهی</div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: registrationRemaining > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{money(registrationRemaining)}</div>
+              {/* خلاصه مالی شفاف */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', textAlign: 'center' }}>
+                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>شهریه کل</div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-md)' }}>{money(registrationTotal)}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', textAlign: 'center' }}>
+                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>پرداخت‌شده</div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-md)', color: 'var(--color-success)' }}>{money(registrationPaid)}</div>
+                </div>
+                <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', textAlign: 'center' }}>
+                  <div style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>باقی‌مانده</div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-md)', color: registrationRemaining > 0 ? 'var(--color-danger)' : 'var(--color-success)' }}>{money(registrationRemaining)}</div>
+                </div>
+              </div>
+
+              {/* تعیین شهریه کل — قابل ویرایش و ذخیره */}
+              <div style={{ padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-tertiary)' }}>
+                <div style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-sm)', marginBottom: '0.5rem' }}>💰 اگر شهریه کامل این شاگرد را هنوز تعیین نکرده‌اید، اینجا وارد و ثبت کنید</div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <Input type="number" value={debtOverride} onChange={(e) => setDebtOverride(e.target.value)} placeholder="مبلغ کل شهریه (تومان)" style={{ flex: 1 }} />
+                  <Button variant="secondary" onClick={handleSaveTuition} disabled={savingTuition}>{savingTuition ? 'در حال ذخیره...' : 'ثبت شهریه'}</Button>
+                </div>
+                {formErrors.tuition && <div style={{ color: 'var(--color-danger)', fontSize: 'var(--font-size-xs)', marginTop: '0.4rem' }}>{formErrors.tuition}</div>}
               </div>
             </>
           )}
-          <Input label="مبلغ پرداخت (تومان)" type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} error={formErrors.amount} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <Input label="مبلغ پرداخت (تومان)" type="number" value={formData.amount} onChange={(e) => setFormData({ ...formData, amount: e.target.value })} error={formErrors.amount} />
+            {selectedRegistration && registrationRemaining > 0 && (
+              <Button variant="ghost" onClick={setPayFull} style={{ alignSelf: 'flex-start', fontSize: 'var(--font-size-xs)' }}>⚡ پرداخت کامل مانده ({money(registrationRemaining)})</Button>
+            )}
+          </div>
           <Input label="تاریخ پرداخت (جلالی)" value={formData.payment_date_jalali} onChange={(e) => setFormData({ ...formData, payment_date_jalali: e.target.value })} placeholder="۱۴۰۵/۰۵/۲۸" />
           <Select label="روش پرداخت" value={formData.method} onChange={(v) => setFormData({ ...formData, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال بانکی' }, { value: 'check', label: 'چک' }]} />
           <Textarea label="توضیحات" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />

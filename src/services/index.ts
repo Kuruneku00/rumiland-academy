@@ -849,6 +849,62 @@ export class PaymentService extends BaseService<Payment> {
       return { success: false, error: err.message };
     }
   }
+
+  /**
+   * تنظیم صریح شهریه/بدهی کل یک ثبت‌نام.
+   * این مقدار مستقیماً در total_amount ذخیره می‌شود و برنامه اقساط
+   * در صورت تک‌قسطی بودن، به‌روزرسانی می‌گردد. برای ثبت‌نام‌هایی که
+   * در زمان ثبت‌نام شهریه‌ای تعیین نشده بود (شهریه ۰) کاربرد دارد.
+   */
+  async setRegistrationTotal(
+    registrationId: string,
+    total: number
+  ): Promise<{ success: boolean; data?: Registration; error?: string }> {
+    try {
+      const reg = await db.registrations.get(registrationId);
+      if (!reg) return { success: false, error: 'ثبت‌نام یافت نشد' };
+
+      const newTotal = Math.max(0, Number(total || 0));
+
+      let installments = reg.installments || 1;
+      let planJson = reg.installment_plan_json;
+      try {
+        const plan = planJson ? JSON.parse(planJson) : [];
+        const hasExplicitPlan = Array.isArray(plan) && plan.length > 0 && plan.some((p: any) => p.title && !/قسط کامل|قسط اول|قسط دوم/.test(p.title || ''));
+        if (!hasExplicitPlan) {
+          let newPlan: Array<{ number: number; amount: number; due_date?: string; title: string }> = [];
+          if (installments === 2) {
+            const first = Math.floor(newTotal / 2);
+            newPlan = [
+              { number: 1, amount: first, due_date: new Date().toISOString().split('T')[0], title: 'قسط اول' },
+              { number: 2, amount: newTotal - first, due_date: '', title: 'قسط دوم' },
+            ];
+          } else {
+            newPlan = [{ number: 1, amount: newTotal, due_date: new Date().toISOString().split('T')[0], title: 'قسط کامل' }];
+          }
+          planJson = JSON.stringify(newPlan);
+        }
+      } catch {
+        planJson = JSON.stringify([{ number: 1, amount: newTotal, due_date: new Date().toISOString().split('T')[0], title: 'قسط کامل' }]);
+      }
+
+      await db.registrations.update(registrationId, {
+        total_amount: newTotal,
+        tuition_fee: newTotal,
+        registration_fee: 0,
+        discount: 0,
+        installment_plan_json: planJson,
+        updated_at: new Date().toISOString(),
+      } as any);
+
+      await persistRegistrationFigures(registrationId);
+      const updated = await db.registrations.get(registrationId);
+
+      return { success: true, data: updated || undefined };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
 }
 
 // ================================================================
