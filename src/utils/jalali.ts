@@ -127,6 +127,10 @@ export interface NextDueInfo {
   days_until_due: number;
   due_label: string;
   is_today: boolean;
+  /** هزینه از موعدش گذشته و هنوز پرداخت نشده (معوق) */
+  is_overdue: boolean;
+  /** برچسب موعدِ گذشته‌ای که پرداخت نشده (مثلاً «۱۹ مرداد ۱۴۰۵»), وقتی معوق باشد */
+  overdue_label: string;
 }
 
 /**
@@ -211,9 +215,21 @@ export function nextDueInfo(
   const targetMidnight = new Date(targetG.getFullYear(), targetG.getMonth(), targetG.getDate());
   const diffDays = Math.round((targetMidnight.getTime() - todayMidnight.getTime()) / 86400000);
 
+  // تشخیص معوق: هزینه‌ی ماهِ جاری هنوز پرداخت نشده و روزِ موعدِ ماه جاری گذشته است.
+  // (paid_through اگر ماهِ جاری یا بعدش باشد، یعنی این ماه تسویه شده و معوق نیست)
+  const paidMonth = paid ? jMonthIndex(paid.jy, paid.jm) : -Infinity;
+  const paidThisMonthOrLater = paidMonth >= jMonthIndex(today.jy, today.jm);
+  const thisMonthDueDay = Math.min(dueDay, jalaliMonthLength(today.jy, today.jm));
+  const overdue =
+    !paidThisMonthOrLater && today.jd > thisMonthDueDay;
+
+  const overdueJ = { jy: today.jy, jm: today.jm, jd: thisMonthDueDay };
+
   return {
     days_until_due: Math.max(0, diffDays),
     is_today: diffDays === 0,
+    is_overdue: overdue,
+    overdue_label: `${toFa(overdueJ.jd)} ${jalaliMonthName(overdueJ.jm)} ${toFa(overdueJ.jy)}`,
     due_label: `${toFa(targetJ.jd)} ${jalaliMonthName(targetJ.jm)} ${toFa(targetJ.jy)}`,
   };
 }

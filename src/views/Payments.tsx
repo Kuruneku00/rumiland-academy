@@ -810,15 +810,23 @@ function ExpensesTab() {
             {recurring.map((r: any) => {
               const d = r.days_until_due;
               const paidLabel = paidThroughLabel(r.paid_through);
-              const dueText = d <= 0 ? 'موعد امروز است!' : `${d.toLocaleString('fa-IR')} روز مانده`;
+              const isOverdue = !!r.is_overdue;
               const prio = (r.priority || 'medium') as 'high' | 'medium' | 'low';
               const prioMeta: Record<string, { label: string; color: string; bg: string }> = {
                 high: { label: 'اولویت بالا', color: '#c0392b', bg: '#c0392b18' },
                 medium: { label: 'اولویت متوسط', color: '#e67e22', bg: '#e67e2218' },
                 low: { label: 'اولویت پایین', color: 'var(--color-text-muted)', bg: 'var(--color-bg-tertiary)' },
               };
+              const statusText = isOverdue
+                ? `معوق — موعد ${r.overdue_label} گذشته`
+                : r.is_today
+                ? 'موعد امروز است!'
+                : r.paid_through
+                ? 'پرداخت شده ✓'
+                : `${d.toLocaleString('fa-IR')} روز مانده`;
+              const statusVariant = isOverdue ? 'danger' : r.is_today || (r.paid_through ? false : d <= 3) ? 'warning' : 'success';
               return (
-                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: r.priority === 'high' ? '1px solid #c0392b' : 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
+                <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: isOverdue ? '1.5px solid var(--color-danger)' : r.priority === 'high' ? '1px solid #c0392b' : 'var(--border-default)', background: isOverdue ? 'var(--color-danger-light)' : 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '160px' }}>
                     <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                       {r.title}
@@ -828,7 +836,7 @@ function ExpensesTab() {
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{money(r.amount)}</div>
-                    <Badge variant={r.paid_through ? 'success' : d <= 0 ? 'danger' : d <= 3 ? 'warning' : 'success'}>{r.paid_through ? 'این ماه ✓' : dueText}</Badge>
+                    <Badge variant={statusVariant}>{statusText}</Badge>
                   </div>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                     <select value={prio} onChange={(e) => setRecurringPriority(r.id, e.target.value as 'high' | 'medium' | 'low')} title="اولویت" style={{ height: 30, padding: '0 0.4rem', background: 'var(--color-input)', border: 'var(--border-default)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)', outline: 'none', cursor: 'pointer' }}>
@@ -836,7 +844,7 @@ function ExpensesTab() {
                       <option value="medium">متوسط</option>
                       <option value="low">پایین</option>
                     </select>
-                    <button onClick={() => payEarlyRecurring(r.id)} title="هزینه‌ی این ماه را الان پرداخت کردم" style={{ background: 'var(--color-success-light)', border: '1px solid var(--color-success)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-success)', padding: '0.25rem 0.6rem' }}>✓ پرداخت زودهنگام</button>
+                    <button onClick={() => payEarlyRecurring(r.id)} title={isOverdue ? 'پرداخت معوقه‌ی این ماه' : 'پرداخت زودهنگام (پیش از موعد)'} style={{ background: isOverdue ? 'var(--color-danger-light)' : 'var(--color-success-light)', border: `1px solid ${isOverdue ? 'var(--color-danger)' : 'var(--color-success)'}`, borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: isOverdue ? 'var(--color-danger)' : 'var(--color-success)', padding: '0.25rem 0.6rem', whiteSpace: 'nowrap' }}>{isOverdue ? '✓ پرداخت معوقه' : '✓ پرداخت'}</button>
                     <button onClick={() => toggleRecurring(r.id, r.is_active)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: r.is_active ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{r.is_active ? 'فعال' : 'غیرفعال'}</button>
                     <button onClick={() => deleteRecurring(r.id)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>حذف</button>
                   </div>

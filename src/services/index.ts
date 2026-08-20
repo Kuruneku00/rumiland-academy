@@ -1547,26 +1547,65 @@ export const financeService = {
     const existing = await db.recurringExpenses.get(id);
     if (!existing) throw new Error('هزینهٔ ثابت پیدا نشد');
 
-    // اگر قبلاً پرداخت زودهنگام شده، یک ماه جلوتر برو؛ وگرنه از ماه جاری شروع کن.
-    const current = currentMonthKey();
+    const now = new Date();
+    const current = currentMonthKey(now);
+
+    // تعیین ماهی که واقعاً بابت آن پرداخت می‌شود:
+    //  - اگر معوق است (موعدِ ماه جاری گذشته و پرداخت نشده) → پرداخت برای «ماه جاری».
+    //  - اگر از قبل paid_through == ماه جاری (این ماه تسویه) → پرداخت زودهنگام برای «ماه بعد».
+    //  - در غیر این صورت → پرداخت زودهنگام برای «ماه بعد» (ثبت جلوتر از موعد).
+    const cur = parsePaidThroughMonth(current)!;
     const prev = parsePaidThroughMonth((existing as any).paid_through);
-    let nextKey = current;
-    if (prev) {
-      const cur = parsePaidThroughMonth(current);
-      // paid_through باید حداقل ماهِ بعد از آخرین پرداخت باشد
-      if (cur && prev.jy === cur.jy && prev.jm === cur.jm) {
-        let nm = prev.jm + 1;
-        let ny = prev.jy;
-        if (nm > 12) { nm = 1; ny += 1; }
-        nextKey = `${ny}-${String(nm).padStart(2, '0')}`;
-      }
+
+    const monthPlus = (m: { jy: number; jm: number }) => {
+      let nm = m.jm + 1;
+      let ny = m.jy;
+      if (nm > 12) { nm = 1; ny += 1; }
+      return `${ny}-${String(nm).padStart(2, '0')}`;
+    };
+
+    let nextKey: string;
+    if (prev && prev.jy === cur.jy && prev.jm === cur.jm) {
+      // این ماه قبلاً پرداخت شده → پرداخت زودهنگام برای ماه بعد
+      nextKey = monthPlus(cur);
+    } else if (prev && !(prev.jy === cur.jy && prev.jm === cur.jm) && prev.jy >= cur.jy) {
+      // paid_through در آینده است → یک ماه جلوتر
+      nextKey = monthPlus(prev);
+    } else {
+      // پرداخت برای ماهِ جاری (شامل حالت معوق: از موعد گذشته و هنوز نپرداخته)
+      nextKey = current;
     }
+
+    // ثبت تراکنش مالی واقعی تا از درآمد/مانده کم شود
+    const txAmount = Number(existing.amount || 0);
+    const txId = uuid();
+    const txNowIso = now.toISOString();
+    const tx: FinanceTransaction = {
+      id: txId,
+      type: 'expense',
+      category: existing.category,
+      title: existing.title,
+      amount: txAmount,
+      transaction_date: txNowIso,
+      transaction_date_jalali: null,
+      method: (existing as any).method || 'cash',
+      student_id: null,
+      registration_id: null,
+      payment_id: null,
+      recurring_expense_id: id,
+      description: `پرداخت هزینهٔ ماهانه (${current})`,
+      created_at: txNowIso,
+      updated_at: txNowIso,
+      deleted_at: null,
+    };
+    await db.financeTransactions.put(tx);
 
     await db.recurringExpenses.put({
       ...existing,
       paid_through: nextKey,
-      updated_at: new Date().toISOString(),
+      updated_at: txNowIso,
     } as RecurringExpense);
+
     return { ...existing, paid_through: nextKey };
   },
 
@@ -1841,7 +1880,9 @@ export const financeService = {
           ...item,
           due_day: dueDay,
           days_until_due: info.days_until_due,
-          is_overdue: info.is_today,
+          is_today: info.is_today,
+          is_overdue: info.is_overdue,
+          overdue_label: info.overdue_label,
           due_label: info.due_label,
         };
       })
