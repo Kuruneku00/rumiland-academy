@@ -190,7 +190,7 @@ export const DashboardPage: React.FC = () => {
 
 function ChartBar({ data }: { data: Array<{ name: string; value: number }> }) {
   const maxVal = Math.max(...data.map((d) => d.value), 1);
-  const barColors = ['#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe', '#6366f1', '#818cf8'];
+  const barColors = ['#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#2563eb', '#3b82f6'];
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-around', height: 240, paddingTop: '1rem' }}>
       {data.map((d, i) => (

@@ -11,37 +11,37 @@
 
 /* Primary */
 :root {
-    --color-primary-50: #eef2ff;
-    --color-primary-100: #e0e7ff;
-    --color-primary-200: #c7d2fe;
-    --color-primary-300: #a5b4fc;
-    --color-primary-400: #818cf8;
-    --color-primary-500: #6366f1;
-    --color-primary-600: #4f46e5;
-    --color-primary-700: #4338ca;
-    --color-primary-800: #3730a3;
-    --color-primary-900: #312e81;
-    --color-primary-950: #1e1b4b;
+    --color-primary-50: #eff6ff;
+    --color-primary-100: #dbeafe;
+    --color-primary-200: #bfdbfe;
+    --color-primary-300: #93c5fd;
+    --color-primary-400: #60a5fa;
+    --color-primary-500: #3b82f6;
+    --color-primary-600: #2563eb;
+    --color-primary-700: #1d4ed8;
+    --color-primary-800: #1e40af;
+    --color-primary-900: #1e3a8a;
+    --color-primary-950: #172554;
   
     --color-primary: var(--color-primary-600);
     --color-primary-hover: var(--color-primary-700);
     --color-primary-active: var(--color-primary-800);
     --color-primary-light: var(--color-primary-100);
-    --color-primary-glow: rgba(99, 102, 241, 0.25);
+    --color-primary-glow: rgba(59, 130, 246, 0.25);
   }
   
   /* Accent (Teal/Cyan) */
   :root {
-    --color-accent-50: #f0fdfa;
-    --color-accent-100: #ccfbf1;
-    --color-accent-200: #99f6e4;
-    --color-accent-300: #5eead4;
-    --color-accent-400: #2dd4bf;
-    --color-accent-500: #14b8a6;
-    --color-accent-600: #0d9488;
-    --color-accent-700: #0f766e;
-    --color-accent-800: #115e59;
-    --color-accent-900: #134e4a;
+    --color-accent-50: #f0f9ff;
+    --color-accent-100: #e0f2fe;
+    --color-accent-200: #bae6fd;
+    --color-accent-300: #7dd3fc;
+    --color-accent-400: #38bdf8;
+    --color-accent-500: #0ea5e9;
+    --color-accent-600: #0284c7;
+    --color-accent-700: #0369a1;
+    --color-accent-800: #075985;
+    --color-accent-900: #0c4a6e;
   
     --color-accent: var(--color-accent-500);
   }
@@ -69,28 +69,28 @@
      ================================================================ */
   
   :root {
-    --color-bg-root: #0a0a14;
-    --color-bg-primary: #0f0f1a;
-    --color-bg-secondary: #141428;
-    --color-bg-tertiary: #1a1a2e;
+    --color-bg-root: #07090f;
+    --color-bg-primary: #0b0d15;
+    --color-bg-secondary: #111420;
+    --color-bg-tertiary: #171b2a;
   
-    --color-surface: #1c1c35;
-    --color-surface-hover: #222244;
-    --color-surface-active: #2a2a52;
-    --color-surface-raised: #242450;
+    --color-surface: #1a1f30;
+    --color-surface-hover: #202638;
+    --color-surface-active: #282f46;
+    --color-surface-raised: #222941;
   
-    --color-card: #1a1a32;
-    --color-card-hover: #202040;
+    --color-card: #171c2c;
+    --color-card-hover: #1d2336;
     --color-card-border: rgba(255, 255, 255, 0.06);
   
-    --color-sidebar: #0d0d1f;
-    --color-sidebar-hover: #1a1a35;
-    --color-sidebar-active: rgba(99, 102, 241, 0.15);
+    --color-sidebar: #0a0c14;
+    --color-sidebar-hover: #161a29;
+    --color-sidebar-active: rgba(59, 130, 246, 0.16);
   
-    --color-toolbar: #111128;
+    --color-toolbar: #0e111c;
     --color-toolbar-border: rgba(255, 255, 255, 0.05);
   
-    --color-input: #1a1a32;
+    --color-input: #171c2c;
     --color-input-border: rgba(255, 255, 255, 0.08);
     --color-input-focus: var(--color-primary-600);
     --color-input-placeholder: rgba(255, 255, 255, 0.25);
@@ -105,7 +105,7 @@
     --color-text-secondary: rgba(255, 255, 255, 0.75);
     --color-text-tertiary: rgba(255, 255, 255, 0.5);
     --color-text-muted: rgba(255, 255, 255, 0.35);
-    --color-text-inverse: #0f0f1a;
+    --color-text-inverse: #0b0d15;
     --color-text-link: var(--color-primary-400);
   
     --font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -196,7 +196,7 @@
     --shadow-2xl: 0 25px 50px rgba(0, 0, 0, 0.6);
   
     --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.2);
-    --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(99, 102, 241, 0.08);
+    --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(59, 130, 246, 0.08);
   
     --shadow-glow-primary: 0 0 20px var(--color-primary-glow);
     --shadow-glow-success: 0 0 16px var(--color-success-glow);

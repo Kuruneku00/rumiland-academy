@@ -29,7 +29,7 @@ styleEl.textContent = `
   }
   .card-hover:hover {
     box-shadow: var(--shadow-card-hover);
-    border-color: rgba(99, 102, 241, 0.15);
+    border-color: rgba(59, 130, 246, 0.15);
     transform: translateY(-1px);
   }
   .btn:hover:not(:disabled) {

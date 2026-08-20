@@ -3,7 +3,7 @@
  * Pixel-perfect recreation based on official specification screenshots.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useStudentStore } from '@/store';
 import { studentService, registrationService, courseService, classService } from '@/services';
 import { Card, EmptyState, Table, Pagination, Modal } from '@/components/Layout';
@@ -277,6 +277,16 @@ const StudentFormDialog: React.FC<StudentFormDialogProps> = ({
   isOpen, onClose, title, formData, setFormData, formErrors, onSave, saving,
 }) => {
   const update = (field: string, value: any) => setFormData({ ...formData, [field]: value });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => update('avatar_url', reader.result as string);
+    reader.readAsDataURL(f);
+  };
 
   return (
     <Modal
@@ -291,6 +301,22 @@ const StudentFormDialog: React.FC<StudentFormDialogProps> = ({
         </>
       }
     >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', background: 'var(--color-surface)', border: 'var(--border-default)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {formData.avatar_url
+            ? <img src={formData.avatar_url} alt="آواتار" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'var(--color-text-tertiary)' }}><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-text-secondary)' }}>عکس پروفایل شاگرد (اختیاری)</span>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarFile} style={{ display: 'none' }} />
+            <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()}>{formData.avatar_url ? 'تغییر عکس' : 'انتخاب عکس'}</Button>
+            {formData.avatar_url && <Button size="sm" variant="secondary" onClick={() => update('avatar_url', null)}>حذف عکس</Button>}
+          </div>
+        </div>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
         <Input label="نام" value={formData.first_name || ''} onChange={(e) => update('first_name', e.target.value)} error={formErrors.first_name} placeholder="نام" />
         <Input label="نام خانوادگی" value={formData.last_name || ''} onChange={(e) => update('last_name', e.target.value)} error={formErrors.last_name} placeholder="نام خانوادگی" />

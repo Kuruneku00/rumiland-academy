@@ -11,7 +11,7 @@ import { db } from '@/db/schema';
 const WEEKDAYS_FA = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه'];
 
 const CLASS_TYPE_COLORS: Record<string, string> = {
-  'group': '#6366f1', 'private': '#f97316', 'default': '#3b82f6',
+  'group': '#2563eb', 'private': '#f97316', 'default': '#3b82f6',
 };
 
 export const CalendarPage: React.FC = () => {
