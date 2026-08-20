@@ -4,6 +4,7 @@
 import { BaseService } from './base';
 import { createIncomeTransactionForPayment, syncTransactionForPayment, removeTransactionForPayment, persistRegistrationFigures, registrationTotal, resolveRegistrationTotal, paidAmountForRegistration, parseInstallmentPlan } from './finance';
 import { db } from '@/db/schema';
+import { nextDueInfo } from '@/utils/jalali';
 import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, FinanceTransaction, FinanceCategory, RecurringExpense, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
 import { v4 as uuid } from 'uuid';
 
@@ -1787,26 +1788,17 @@ export const financeService = {
       .filter((item) => !item.deleted_at && item.is_active)
       .toArray();
 
-    const todayDay = now.getDate();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const todayJalali = new Date().toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' });
-
     return items
       .map((item) => {
         const dueDay = Math.min((item as any).due_day || 1, 31);
-        const clampedDay = Math.min(dueDay, daysInMonth);
-        let daysUntil = clampedDay - todayDay;
-        let isOverdue = false;
-        if (daysUntil < 0) {
-          // گذشته در این ماه → موعد در ماه آینده
-          daysUntil = daysInMonth - todayDay + clampedDay;
-        }
+        // محاسبه‌ی دقیق موعد بعدی در تقویم شمسی
+        const info = nextDueInfo(dueDay, now);
         return {
           ...item,
           due_day: dueDay,
-          days_until_due: daysUntil,
-          is_overdue: daysUntil === 0,
-          due_label: `روز ${dueDay.toLocaleString('fa-IR')} هر ماه`,
+          days_until_due: info.days_until_due,
+          is_overdue: info.is_today,
+          due_label: info.due_label,
         };
       })
       .sort((a, b) => (a as any).days_until_due - (b as any).days_until_due);

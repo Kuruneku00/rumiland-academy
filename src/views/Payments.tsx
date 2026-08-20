@@ -793,7 +793,7 @@ function ExpensesTab() {
                 <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '160px' }}>
                     <div style={{ fontWeight: 600 }}>{r.title}</div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · {r.due_label} · {METHOD_LABELS[r.method] || r.method}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · روز {Number(r.due_day).toLocaleString('fa-IR')} هر ماه · موعد بعدی: {r.due_label} · {METHOD_LABELS[r.method] || r.method}</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{money(r.amount)}</div>
