@@ -127,6 +127,8 @@ function PaymentsTab() {
 
   const [studentsList, setStudentsList] = useState<StudentOption[]>([]);
   const [registrationsList, setRegistrationsList] = useState<RegistrationOption[]>([]);
+  const [classOptions, setClassOptions] = useState<Array<{ id: string; label: string; registrationId: string; tuition: number }>>([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedRegistration, setSelectedRegistration] = useState<RegistrationOption | null>(null);
   const [registrationPayments, setRegistrationPayments] = useState<Payment[]>([]);
   const [selectedInstallment, setSelectedInstallment] = useState<Installment | null>(null);
@@ -170,21 +172,47 @@ function PaymentsTab() {
   const handleStudentChange = async (studentId: string) => {
     setFormData((c) => ({ ...c, student_id: studentId, registration_id: '', amount: '', installment_number: '' }));
     setSelectedRegistration(null); setSelectedInstallment(null); setRegistrationPayments([]);
-    setDebtOverride('');
+    setDebtOverride(''); setSelectedClassId('');
     await loadRegistrations(studentId);
+
+    // ساخت لیست کلاس‌هایی که این شاگرد در آن‌ها ثبت‌نام دارد + شهریه‌ی دوره
+    try {
+      const all = await registrationService.getAll();
+      const regs = all.filter((r: any) => r.student_id === studentId && !r.deleted_at);
+      const opts: Array<{ id: string; label: string; registrationId: string; tuition: number }> = [];
+      for (const r of regs) {
+        const courseId = r.course_id || (r.class_id ? (await db.classes.get(r.class_id))?.course_id : undefined);
+        const course = courseId ? await db.courses.get(courseId) : null;
+        const cls = r.class_id ? await db.classes.get(r.class_id) : null;
+        const tuition = Number(r.total_amount || r.tuition_fee || course?.tuition_fee || 0);
+        const clsLabel = cls ? (cls.code || 'کلاس') : (course?.title || 'دوره');
+        opts.push({ id: r.class_id || r.id, label: `${clsLabel} — شهریه ${money(tuition)}`, registrationId: r.id, tuition });
+      }
+      setClassOptions(opts);
+    } catch (e) { console.error(e); setClassOptions([]); }
+  };
+
+  /** انتخاب کلاس: ثبت‌نام و شهریه‌ی آن کلاس را خودکار اعمال کن */
+  const handleClassChange = async (classKey: string) => {
+    const opt = classOptions.find((c) => c.id === classKey);
+    if (!opt) return;
+    setSelectedClassId(classKey);
+    const registration = registrationsList.find((r) => r.id === opt.registrationId) || null;
+    setSelectedRegistration(registration); setSelectedInstallment(null); setRegistrationPayments([]);
+    setDebtOverride(opt.tuition > 0 ? String(opt.tuition) : '');
+    setFormData((c) => ({ ...c, registration_id: opt.registrationId, amount: '', installment_number: '' }));
+    if (opt.registrationId) await loadRegistrationPayments(opt.registrationId);
   };
   const handleRegistrationChange = async (registrationId: string) => {
     const registration = registrationsList.find((r) => r.id === registrationId) || null;
     setSelectedRegistration(registration); setSelectedInstallment(null);
     let total = registration ? getRegistrationTotal(registration) : 0;
-    // اگر شهریه در ثبت‌نام صفر است، از کلاس یا دوره مربوطه بخوانیم
+    // اگر شهریه در ثبت‌نام صفر است، از دوره‌ی مربوطه بخوانیم
     if (total <= 0 && registration) {
       const cls = registration.class_id ? await db.classes.get(registration.class_id) : null;
       const courseId = cls?.course_id || registration.course_id;
       const course = courseId ? await db.courses.get(courseId) : null;
-      const classTuition = cls && typeof (cls as any).tuition_fee === 'number' ? Number((cls as any).tuition_fee || 0) : 0;
-      const courseTuition = course ? Number(course.tuition_fee || 0) : 0;
-      total = classTuition > 0 ? classTuition : courseTuition;
+      total = course ? Number(course.tuition_fee || 0) : 0;
     }
     setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
@@ -362,6 +390,12 @@ function PaymentsTab() {
           {formErrors.general && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{formErrors.general}</div>}
           {!selectedRegistration && (<>
             <Select label="شاگرد" placeholder="انتخاب شاگرد..." value={formData.student_id} onChange={handleStudentChange} error={formErrors.student_id} options={studentsList.map((s) => ({ value: s.id, label: `${s.first_name} ${s.last_name}` }))} />
+            {classOptions.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                <Select label="کلاس (خودکار شهریه را می‌آورد)" placeholder="انتخاب کلاس..." value={selectedClassId} onChange={handleClassChange} options={classOptions.map((c) => ({ value: c.id, label: c.label }))} />
+                <div style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>با انتخاب کلاس، شهریه‌ی آن دوره به‌طور خودکار در فرم قرار می‌گیرد.</div>
+              </div>
+            )}
             <Select label="ثبت‌نام" placeholder={formData.student_id ? 'انتخاب ثبت‌نام...' : 'ابتدا شاگرد را انتخاب کنید'} value={formData.registration_id} onChange={handleRegistrationChange} disabled={!formData.student_id} error={formErrors.registration_id} options={registrationsList.map((r) => ({ value: r.id, label: `${r.registration_number} — ${money(getRegistrationTotal(r))}` }))} />
           </>)}
           {selectedRegistration && (
