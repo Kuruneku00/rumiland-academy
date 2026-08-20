@@ -159,3 +159,45 @@ export function nextDueInfo(dayOfMonth: number, now: Date = new Date()): NextDue
     due_label: `${toFa(targetJ.jd)} ${jalaliMonthName(targetJ.jm)} ${toFa(targetJ.jy)}`,
   };
 }
+
+
+/** تبدیل ارقام فارسی/عربی به لاتین */
+export function faToEnDigit(s: string): string {
+  return s
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+}
+
+/**
+ * تجزیه‌ی ورودی تاریخ شمسی کاربر (مانند «۱۴۰۵/۰۵/۲۹»، «1405/05/29»، «1405-5-29»).
+ * خروجی: { jy, jm, jd } یا null اگر نامعتبر بود.
+ */
+export function parseJalaliInput(input: string): JalaliDate | null {
+  if (!input) return null;
+  const s = faToEnDigit(String(input)).trim();
+  // جداکننده‌های رایج: / ، - ، . و فاصله
+  const parts = s.split(/[/\-.,\s]+/).filter(Boolean);
+  if (parts.length !== 3) {
+    // اگر کاربر فقط «روز» یا «روز/ماه» داد، نمی‌توانیم سال را حدس بزنیم
+    return null;
+  }
+  let jy = parseInt(parts[0], 10);
+  let jm = parseInt(parts[1], 10);
+  let jd = parseInt(parts[2], 10);
+  if (!Number.isFinite(jy) || !Number.isFinite(jm) || !Number.isFinite(jd)) return null;
+  // سال دو رقمی → 1400+
+  if (jy < 100) jy += 1400;
+  if (jm < 1 || jm > 12 || jd < 1) return null;
+  if (jd > jalaliMonthLength(jy, jm)) return null;
+  return { jy, jm, jd };
+}
+
+/** نمایش تاریخ شمسی به‌صورت خوشخوان (با ارقام فارسی): «۱۴۰۵/۵/۲۹» */
+export function formatJalaliShort(j: JalaliDate): string {
+  return `${toFa(j.jy)}/${toFa(j.jm)}/${toFa(j.jd)}`;
+}
+
+/** نمایش تاریخ شمسی کامل: «۲۹ مرداد ۱۴۰۵» */
+export function formatJalaliFull(j: JalaliDate): string {
+  return `${toFa(j.jd)} ${jalaliMonthName(j.jm)} ${toFa(j.jy)}`;
+}

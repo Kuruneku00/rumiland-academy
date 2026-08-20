@@ -6,9 +6,35 @@ import { courseService, classService } from '@/services';
 import { Card, EmptyState, Modal } from '@/components/Layout';
 import { Button, Select, Input } from '@/components/Basic';
 import { db } from '@/db/schema';
+import { gregorianToJalali, parseJalaliInput, jalaliToGregorian, formatJalaliShort, formatJalaliFull } from '@/utils/jalali';
 import { v4 as uuid } from 'uuid';
 
 interface AttRow { attendance: any; studentName: string; }
+
+/** تبدیل تاریخ شمسی ورودی کاربر به رشته میلادی YYYY-MM-DD برای ذخیره‌سازی */
+function jalaliInputToISO(jalaliInput: string): string | null {
+  const j = parseJalaliInput(jalaliInput);
+  if (!j) return null;
+  const g = jalaliToGregorian(j.jy, j.jm, j.jd);
+  const mm = String(g.getMonth() + 1).padStart(2, '0');
+  const dd = String(g.getDate()).padStart(2, '0');
+  return `${g.getFullYear()}-${mm}-${dd}`;
+}
+
+/** تبدیل تاریخ میلادی ذخیره‌شده (YYYY-MM-DD یا ISO) به نمایش شمسی کامل */
+function displayJalali(isoDate: string): string {
+  if (!isoDate) return '—';
+  const d = new Date(isoDate);
+  if (isNaN(d.getTime())) return isoDate;
+  const j = gregorianToJalali(d);
+  return formatJalaliFull(j);
+}
+
+/** تاریخ شمسی امروز به فرمت ورودی (۱۴۰۵/۵/۲۹) */
+function todayJalaliInput(): string {
+  const j = gregorianToJalali(new Date());
+  return formatJalaliShort(j);
+}
 
 export const AttendancePage: React.FC = () => {
   const [courses, setCourses] = useState<any[]>([]);
@@ -16,7 +42,7 @@ export const AttendancePage: React.FC = () => {
   const [showAttDialog, setShowAttDialog] = useState(false);
   const [attCourseId, setAttCourseId] = useState('');
   const [attClassId, setAttClassId] = useState('');
-  const [attDate, setAttDate] = useState(new Date().toISOString().split('T')[0]);
+  const [attDate, setAttDate] = useState(todayJalaliInput());
   const [attRows, setAttRows] = useState<AttRow[]>([]);
   const [attLoading, setAttLoading] = useState(false);
   const [attFilteredClasses, setAttFilteredClasses] = useState<any[]>([]);
@@ -68,12 +94,13 @@ export const AttendancePage: React.FC = () => {
     if (!attClassId) return;
     setAttLoading(true);
     const students = await classService.getClassStudents(attClassId);
-    const todayDate = attDate || new Date().toISOString().split('T')[0];
+    // تاریخ شمسی واردشده را به میلادی تبدیل کن تا با رکوردهای ذخیره‌شده مقایسه شود
+    const isoDate = jalaliInputToISO(attDate) || new Date().toISOString().split('T')[0];
     const existingAtt = await db.attendance.where('class_id').equals(attClassId).toArray();
     const sessionId = attSessionId || uuid();
     const rows: AttRow[] = students.map((s: any) => {
-      const att = existingAtt.find((a: any) => a.student_id === s.student.id && a.date === todayDate);
-      return { attendance: att || { student_id: s.student.id, registration_id: s.registration.id, class_id: attClassId, date: todayDate, status: 'present', late_minutes: 0, session_id: sessionId }, studentName: `${s.student.first_name} ${s.student.last_name}` };
+      const att = existingAtt.find((a: any) => a.student_id === s.student.id && a.date === isoDate);
+      return { attendance: att || { student_id: s.student.id, registration_id: s.registration.id, class_id: attClassId, date: isoDate, status: 'present', late_minutes: 0, session_id: sessionId }, studentName: `${s.student.first_name} ${s.student.last_name}` };
     });
     setAttRows(rows);
     setAttLoading(false);
@@ -81,13 +108,19 @@ export const AttendancePage: React.FC = () => {
 
   const saveAttendance = async () => {
     const now = new Date().toISOString();
+    // تبدیل تاریخ شمسی واردشده به میلادی برای ذخیره‌سازی
+    const isoDate = jalaliInputToISO(attDate);
+    if (!isoDate) {
+      alert('تاریخ واردشده معتبر نیست. لطفاً به فرمت شمسی مثل ۱۴۰۵/۵/۲۹ وارد کنید.');
+      return;
+    }
     for (const row of attRows) {
       const existing = await db.attendance.where('class_id').equals(attClassId).and((a: any) => a.student_id === row.attendance.student_id && a.date === row.attendance.date).first();
       if (!existing) {
         await db.attendance.put({
           id: uuid(), session_id: row.attendance.session_id || uuid(), student_id: row.attendance.student_id,
           registration_id: row.attendance.registration_id, class_id: attClassId,
-          date: row.attendance.date, status: row.attendance.status,
+          date: isoDate, status: row.attendance.status,
           late_minutes: row.attendance.late_minutes || 0, notes: null,
           recorded_by: 'admin', created_at: now, updated_at: now,
         });
@@ -108,7 +141,7 @@ export const AttendancePage: React.FC = () => {
     <div style={{ padding: '1.5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <h1 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700 }}>حضور و غیاب</h1>
-        <Button onClick={() => { setAttClassId(''); setAttCourseId(''); setAttDate(new Date().toISOString().split('T')[0]); setAttSessionId(''); setAttRows([]); setShowAttDialog(true); }}>افزودن حضور و غیاب</Button>
+        <Button onClick={() => { setAttClassId(''); setAttCourseId(''); setAttDate(todayJalaliInput()); setAttSessionId(''); setAttRows([]); setShowAttDialog(true); }}>افزودن حضور و غیاب</Button>
       </div>
 
       <Card padding="0">
@@ -134,7 +167,7 @@ export const AttendancePage: React.FC = () => {
                 <tr key={r.id} style={{ borderBottom: 'var(--border-thin)' }}>
                   <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{r.studentName}</td>
                   <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{r.className || '--'}</td>
-                  <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{new Date(r.date).toLocaleDateString('fa-IR', { timeZone: 'Asia/Tehran' })}</td>
+                  <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{displayJalali(r.date)}</td>
                   <td style={{ padding: '0.6rem 1rem' }}><span style={{ fontSize: 'var(--font-size-xs)', padding: '0.2rem 0.5rem', borderRadius: 'var(--radius-sm)', background: r.status === 'absent' ? 'var(--color-danger-light)' : r.status === 'present' ? 'var(--color-success-light)' : 'var(--color-warning-light)', color: r.status === 'absent' ? 'var(--color-danger)' : r.status === 'present' ? 'var(--color-success)' : 'var(--color-warning)' }}>{statusLabel(r.status)}</span></td>
                   <td style={{ padding: '0.6rem 1rem', fontSize: 'var(--font-size-sm)' }}>{r.late_minutes || 0}</td>
                 </tr>
@@ -151,9 +184,10 @@ export const AttendancePage: React.FC = () => {
           <Select label="دوره" placeholder="فیلتر بر اساس دوره..." options={courses.map((c: any) => ({ value: c.id, label: c.title }))} value={attCourseId} onChange={(v) => onAttCourseChange(v)} />
           <Select label="کلاس" placeholder="انتخاب کلاس..." options={attFilteredClasses.map((c: any) => ({ value: c.id, label: `${c.code} (${c.type === 'group' ? 'گروهی' : 'خصوصی'})` }))} value={attClassId} onChange={(v) => onAttClassChange(v)} />
           {attSessions.length > 0 && (
-            <Select label="جلسه" placeholder="انتخاب جلسه..." options={attSessions.map((s: any) => ({ value: s.id, label: `جلسه ${s.session_number} - ${s.date_jalali || s.date}` }))} value={attSessionId} onChange={(v) => { setAttSessionId(v); const s = attSessions.find((x: any) => x.id === v); if (s) setAttDate(s.date); }} />
+            <Select label="جلسه" placeholder="انتخاب جلسه..." options={attSessions.map((s: any) => ({ value: s.id, label: `جلسه ${s.session_number} - ${s.date_jalali || s.date}` }))} value={attSessionId} onChange={(v) => { setAttSessionId(v); const s = attSessions.find((x: any) => x.id === v); if (s) { const j = gregorianToJalali(new Date(s.date)); setAttDate(formatJalaliShort(j)); } }} />
           )}
-          <Input label="تاریخ" value={attDate} onChange={(e) => setAttDate(e.target.value)} placeholder="YYYY-MM-DD" />
+          <Input label="تاریخ (شمسی)" value={attDate} onChange={(e) => setAttDate(e.target.value)} placeholder="مثلاً ۱۴۰۵/۵/۲۹" />
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>تاریخ جلسه را به شمسی وارد کنید (می‌توانید با «/» یا «-» جدا کنید).</div>
           <Button variant="secondary" onClick={loadAttendanceForClass} disabled={!attClassId}>بارگذاری لیست دانشجویان</Button>
           {attLoading ? <div style={{ textAlign: 'center', color: 'var(--color-text-tertiary)' }}>در حال بارگذاری...</div> : attRows.length > 0 ? (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
