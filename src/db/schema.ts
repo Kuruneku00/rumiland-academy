@@ -465,6 +465,11 @@ export class RumilandDB extends Dexie {
         'id, title, category, due_day, is_active',
     });
 
+    this.version(3).stores({
+      payments:
+        'id, student_id, registration_id, class_id, course_id, status, payment_date',
+    });
+
   }
 }
 

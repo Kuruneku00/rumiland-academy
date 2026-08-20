@@ -2,11 +2,12 @@
  * Rumiland Academy — مدیریت مالی کامل
  */
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
-import { paymentService, studentService, registrationService, financeService, financeCategoryLabel } from '@/services';
+import { paymentService, studentService, registrationService, classService, courseService, financeService, financeCategoryLabel } from '@/services';
 import { useFinanceStore } from '@/store';
 import { Card, EmptyState, Table, Pagination, Badge, Modal } from '@/components/Layout';
 import { Button, Input, Select, SearchInput, Textarea } from '@/components/Basic';
 import type { Column } from '@/components/Layout';
+import { db } from '@/db/schema';
 import type { Payment, Registration, FinanceTransaction } from '@/db/schema';
 
 interface StudentOption { id: string; first_name: string; last_name: string; }
@@ -174,7 +175,16 @@ function PaymentsTab() {
   const handleRegistrationChange = async (registrationId: string) => {
     const registration = registrationsList.find((r) => r.id === registrationId) || null;
     setSelectedRegistration(registration); setSelectedInstallment(null);
-    const total = registration ? getRegistrationTotal(registration) : 0;
+    let total = registration ? getRegistrationTotal(registration) : 0;
+    // اگر شهریه در ثبت‌نام صفر است، از کلاس یا دوره مربوطه بخوانیم
+    if (total <= 0 && registration) {
+      const cls = registration.class_id ? await db.classes.get(registration.class_id) : null;
+      const courseId = cls?.course_id || registration.course_id;
+      const course = courseId ? await db.courses.get(courseId) : null;
+      const classTuition = cls && typeof (cls as any).tuition_fee === 'number' ? Number((cls as any).tuition_fee || 0) : 0;
+      const courseTuition = course ? Number(course.tuition_fee || 0) : 0;
+      total = classTuition > 0 ? classTuition : courseTuition;
+    }
     setDebtOverride(total > 0 ? String(total) : ''); // اگر شهریه تعیین نشده، خالی باشد تا کاربر تعیین کند
     setFormData((c) => ({ ...c, registration_id: registrationId, amount: '', installment_number: '' }));
     await loadRegistrationPayments(registrationId);

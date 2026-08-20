@@ -178,6 +178,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({ onViewProfile }) => {
     setShowAddClass(false);
     setClassForm(emptyClassForm());
     await loadData();
+    if (selectedCourse) await openCourseDetail(selectedCourse);
   };
 
   const handleEditClass = async () => {
@@ -209,6 +210,7 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({ onViewProfile }) => {
     setShowEditClass(false);
     setEditingClass(null);
     await loadData();
+    if (selectedCourse) await openCourseDetail(selectedCourse);
   };
 
   const openEditCourse = (c: Course) => { setEditingCourse(c); setCourseForm({ code: c.code, title: c.title, description: c.description || '', category: c.category || '', level: c.level || '', duration_sessions: c.duration_sessions, session_duration_minutes: c.session_duration_minutes, tuition_fee: c.tuition_fee, registration_fee: c.registration_fee, tags: c.tags || [], status: c.status }); setShowEditCourse(true); };
@@ -218,14 +220,26 @@ export const CoursesPage: React.FC<CoursesPageProps> = ({ onViewProfile }) => {
   const openCourseDetail = async (course: Course) => {
     setSelectedCourse(course);
     setDetailLoading(true);
-    const [cls, st, payments] = await Promise.all([
-      courseService.getCourseClasses(course.id),
-      courseService.getCourseStudents(course.id),
-      db.payments.where('course_id').equals(course.id).filter((p: any) => !p.deleted_at).toArray(),
-    ]);
-    setCourseClasses(cls);
-    setCourseStudents(st);
-    setCourseRevenue(payments.reduce((s: number, p: any) => s + p.amount, 0));
+    try {
+      const [cls, st] = await Promise.all([
+        courseService.getCourseClasses(course.id),
+        courseService.getCourseStudents(course.id),
+      ]);
+      setCourseClasses(cls);
+      setCourseStudents(st);
+    } catch (e) {
+      console.error('خطا در بارگذاری کلاس‌ها/دانش‌آموزان:', e);
+      setCourseClasses([]);
+      setCourseStudents([]);
+    }
+    // درآمد دوره (جدا تا خطای بالقوه باعث خالی شدن کل پنل نشود)
+    try {
+      const payments = await db.payments.filter((p: any) => !p.deleted_at && p.course_id === course.id).toArray();
+      setCourseRevenue(payments.reduce((s: number, p: any) => s + (p.amount || 0), 0));
+    } catch (e) {
+      console.error('خطا در بارگذاری درآمد دوره:', e);
+      setCourseRevenue(0);
+    }
     setDetailLoading(false);
   };
 
