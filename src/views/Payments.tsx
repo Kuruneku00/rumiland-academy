@@ -9,6 +9,7 @@ import { Button, Input, Select, SearchInput, Textarea, SearchableSelect } from '
 import type { Column } from '@/components/Layout';
 import { db } from '@/db/schema';
 import type { Payment, Registration, FinanceTransaction, RecurringExpense, FinanceCategory } from '@/db/schema';
+import { paidThroughLabel } from '@/utils/jalali';
 
 interface StudentOption { id: string; first_name: string; last_name: string; }
 interface RegistrationOption {
@@ -754,6 +755,12 @@ function ExpensesTab() {
     await load();
   };
 
+  // پرداخت زودهنگام: هزینه‌ی این ماه را الان پرداخت کرده، موعد بعدی به ماه بعد می‌رود
+  const payEarlyRecurring = async (id: string) => {
+    await financeService.markRecurringPaidEarly(id);
+    await load();
+  };
+
   const columns: Column<FinanceTransaction>[] = [
     { key: 'date', title: 'تاریخ', render: (t) => t.transaction_date_jalali || formatDate(t.transaction_date) },
     { key: 'title', title: 'عنوان', render: (t) => <span style={{ fontWeight: 600 }}>{t.title}</span> },
@@ -788,19 +795,20 @@ function ExpensesTab() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {recurring.map((r: any) => {
               const d = r.days_until_due;
-              const dueColor = d <= 0 ? 'var(--color-danger)' : d <= 3 ? 'var(--color-warning)' : 'var(--color-success)';
+              const paidLabel = paidThroughLabel(r.paid_through);
               const dueText = d <= 0 ? 'موعد امروز است!' : `${d.toLocaleString('fa-IR')} روز مانده`;
               return (
                 <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: 'var(--border-default)', background: 'var(--color-bg-secondary)', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: '160px' }}>
                     <div style={{ fontWeight: 600 }}>{r.title}</div>
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · روز {Number(r.due_day).toLocaleString('fa-IR')} هر ماه · موعد بعدی: {r.due_label} · {METHOD_LABELS[r.method] || r.method}</div>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · روز {Number(r.due_day).toLocaleString('fa-IR')} هر ماه · موعد بعدی: {r.due_label} · {METHOD_LABELS[r.method] || r.method}{paidLabel ? ` · پرداخت شده تا: ${paidLabel}` : ''}</div>
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{money(r.amount)}</div>
-                    <Badge variant={d <= 0 ? 'danger' : d <= 3 ? 'warning' : 'success'}>{dueText}</Badge>
+                    <Badge variant={r.paid_through ? 'success' : d <= 0 ? 'danger' : d <= 3 ? 'warning' : 'success'}>{r.paid_through ? 'این ماه ✓' : dueText}</Badge>
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button onClick={() => payEarlyRecurring(r.id)} title="هزینه‌ی این ماه را الان پرداخت کردم" style={{ background: 'var(--color-success-light)', border: '1px solid var(--color-success)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-success)', padding: '0.25rem 0.6rem' }}>✓ پرداخت زودهنگام</button>
                     <button onClick={() => toggleRecurring(r.id, r.is_active)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: r.is_active ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{r.is_active ? 'فعال' : 'غیرفعال'}</button>
                     <button onClick={() => deleteRecurring(r.id)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>حذف</button>
                   </div>

@@ -130,17 +130,75 @@ export interface NextDueInfo {
 }
 
 /**
- * محاسبه‌ی موعد بعدی بر اساس «روز ماه» در تقویم شمسی.
+ * مقایسه‌ی دو ماه شمسی به صورت «year*12 + month». مقدار بزرگ‌تر یعنی دیرتر.
  */
-export function nextDueInfo(dayOfMonth: number, now: Date = new Date()): NextDueInfo {
+function jMonthIndex(jy: number, jm: number): number {
+  return jy * 12 + jm;
+}
+
+/**
+ * تبدیل رشته‌ی «paid_through» (مثل «1405-05») به { jy, jm } یا null.
+ */
+export function parsePaidThroughMonth(value?: string | null): { jy: number; jm: number } | null {
+  if (!value) return null;
+  const s = String(value).trim();
+  const m = s.match(/^(\d+)[-\/](\d+)$/);
+  if (!m) return null;
+  const jy = parseInt(m[1], 10);
+  const jm = parseInt(m[2], 10);
+  if (!Number.isFinite(jy) || !Number.isFinite(jm)) return null;
+  if (jm < 1 || jm > 12) return null;
+  if (jy < 100) return { jy: jy + 1400, jm };
+  return { jy, jm };
+}
+
+/** رشته‌ی «paid_through» از روی تاریخ شمسی جاری (سال-ماه). */
+export function currentMonthKey(now: Date = new Date()): string {
+  const j = gregorianToJalali(now);
+  return `${j.jy}-${String(j.jm).padStart(2, '0')}`;
+}
+
+/**
+ * تبدیل «paid_through» (مثل «1405-05») به برچسب فارسی مانند «مرداد ۱۴۰۵».
+ */
+export function paidThroughLabel(value?: string | null): string {
+  const p = parsePaidThroughMonth(value);
+  if (!p) return '';
+  return `${jalaliMonthName(p.jm)} ${toFa(p.jy)}`;
+}
+
+/**
+ * محاسبه‌ی موعد بعدی بر اساس «روز ماه» در تقویم شمسی.
+ * اگر paid_through داده شده باشد (یعنی هزینه تا آن ماه پرداخت شده)،
+ * موعد بعدی از ماهِ بعد از آن محاسبه می‌شود تا یادآوریِ ماهِ پرداخت‌شده تکرار نشود.
+ */
+export function nextDueInfo(
+  dayOfMonth: number,
+  now: Date = new Date(),
+  paidThrough?: string | null
+): NextDueInfo {
   const today = gregorianToJalali(now);
   const dueDay = Math.min(Math.max(1, Math.round(dayOfMonth)), 31);
 
-  const monthLen = jalaliMonthLength(today.jy, today.jm);
+  // کمترین ماهی که باید موعد برایش محاسبه شود.
+  let baseJ = { ...today };
+  const paid = parsePaidThroughMonth(paidThrough);
+  if (paid && jMonthIndex(paid.jy, paid.jm) >= jMonthIndex(today.jy, today.jm)) {
+    // هزینه تا «paid» پرداخت شده، پس قسط بعدی از ماهِ بعد از paid است.
+    baseJ = { jy: paid.jy, jm: paid.jm, jd: 1 };
+    // اگر ماه پایه دقیقاً ماه جاری نبود یا روز موعدِ این ماه گذشته، جلو برو.
+    if (paid.jy === today.jy && paid.jm === today.jm) {
+      // از روزِ بعدِ این ماه شروع کن
+      baseJ.jm += 1;
+      if (baseJ.jm > 12) { baseJ.jm = 1; baseJ.jy += 1; }
+    }
+  }
+
+  const monthLen = jalaliMonthLength(baseJ.jy, baseJ.jm);
   const clampedDay = Math.min(dueDay, monthLen);
 
-  let targetJ = { ...today };
-  if (clampedDay >= today.jd) {
+  let targetJ = { ...baseJ };
+  if (clampedDay >= baseJ.jd) {
     targetJ.jd = clampedDay;
   } else {
     targetJ.jm += 1;

@@ -4,7 +4,7 @@
 import { BaseService } from './base';
 import { createIncomeTransactionForPayment, syncTransactionForPayment, removeTransactionForPayment, persistRegistrationFigures, registrationTotal, resolveRegistrationTotal, paidAmountForRegistration, parseInstallmentPlan } from './finance';
 import { db } from '@/db/schema';
-import { nextDueInfo } from '@/utils/jalali';
+import { nextDueInfo, currentMonthKey, parsePaidThroughMonth } from '@/utils/jalali';
 import type { Student, Teacher, Course, Class, Registration, Session, Attendance, Payment, FinanceTransaction, FinanceCategory, RecurringExpense, Quiz, QuizQuestion, QuizResult, Certificate, Announcement, Notification, QuestionBank, AcademySettings, AuditLog, User, Role } from '@/db/schema';
 import { v4 as uuid } from 'uuid';
 
@@ -1509,7 +1509,13 @@ export const financeService = {
   },
   async createRecurringExpense(data: Omit<RecurringExpense, 'id' | 'created_at' | 'updated_at'>) {
     const now = new Date().toISOString();
-    const expense: RecurringExpense = { ...data, id: uuid(), created_at: now, updated_at: now };
+    const expense: RecurringExpense = {
+      ...data,
+      id: uuid(),
+      paid_through: (data as any).paid_through ?? null,
+      created_at: now,
+      updated_at: now,
+    };
     await db.recurringExpenses.add(expense);
     return expense;
   },
@@ -1528,6 +1534,39 @@ export const financeService = {
       deleted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     } as RecurringExpense);
+  },
+
+  /**
+   * علامت‌گذاری یک هزینه‌ی ماهانه به‌عنوان «پرداخت زودهنگام» برای ماه جاری.
+   * paid_through را روی ماه شمسی جاری می‌گذارد، بنابراین موعد بعدی از ماهِ بعد
+   * محاسبه می‌شود و یادآوریِ ماه پرداخت‌شده تکرار نمی‌شود.
+   * اگر دوباره صدا زده شود، یک ماه دیگر جلو می‌رود (پرداخت چند ماه جلو).
+   */
+  async markRecurringPaidEarly(id: string) {
+    const existing = await db.recurringExpenses.get(id);
+    if (!existing) throw new Error('هزینهٔ ثابت پیدا نشد');
+
+    // اگر قبلاً پرداخت زودهنگام شده، یک ماه جلوتر برو؛ وگرنه از ماه جاری شروع کن.
+    const current = currentMonthKey();
+    const prev = parsePaidThroughMonth((existing as any).paid_through);
+    let nextKey = current;
+    if (prev) {
+      const cur = parsePaidThroughMonth(current);
+      // paid_through باید حداقل ماهِ بعد از آخرین پرداخت باشد
+      if (cur && prev.jy === cur.jy && prev.jm === cur.jm) {
+        let nm = prev.jm + 1;
+        let ny = prev.jy;
+        if (nm > 12) { nm = 1; ny += 1; }
+        nextKey = `${ny}-${String(nm).padStart(2, '0')}`;
+      }
+    }
+
+    await db.recurringExpenses.put({
+      ...existing,
+      paid_through: nextKey,
+      updated_at: new Date().toISOString(),
+    } as RecurringExpense);
+    return { ...existing, paid_through: nextKey };
   },
 
   // ------------------------------------------------------------
@@ -1795,8 +1834,8 @@ export const financeService = {
     return items
       .map((item) => {
         const dueDay = Math.min((item as any).due_day || 1, 31);
-        // محاسبه‌ی دقیق موعد بعدی در تقویم شمسی
-        const info = nextDueInfo(dueDay, now);
+        // محاسبه‌ی دقیق موعد بعدی در تقویم شمسی، با در نظر گرفتن پرداخت زودهنگام (paid_through)
+        const info = nextDueInfo(dueDay, now, (item as any).paid_through || null);
         return {
           ...item,
           due_day: dueDay,

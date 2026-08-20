@@ -219,6 +219,12 @@ export interface RecurringExpense {
   method: Payment['method'];
   description?: string | null;
   is_active: boolean;
+  /**
+   * آخرین ماه شمسی که هزینه‌اش پرداخت شده (مثلاً «1405-05»).
+   * برای پرداخت زودهنگام استفاده می‌شود؛ وقتی ست باشد، موعد بعدی از ماهِ بعد
+   * از این مقدار محاسبه می‌شود و یادآوریِ ماه پرداخت‌شده دوباره تکرار نمی‌شود.
+   */
+  paid_through?: string | null;
   created_at: string;
   updated_at: string;
   deleted_at?: string | null;
@@ -469,6 +475,22 @@ export class RumilandDB extends Dexie {
       payments:
         'id, student_id, registration_id, class_id, course_id, status, payment_date',
     });
+
+    // افزودن paid_through به هزینه‌ی ماهانه (برای پرداخت زودهنگام)
+    this.version(4)
+      .stores({
+        recurringExpenses: 'id, title, category, due_day, is_active',
+      })
+      .upgrade((tx) => {
+        return tx
+          .table('recurringExpenses')
+          .toCollection()
+          .modify((expense: any) => {
+            if (expense.paid_through === undefined) {
+              expense.paid_through = null;
+            }
+          });
+      });
 
   }
 }
