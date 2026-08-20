@@ -1514,6 +1514,8 @@ export const financeService = {
       id: uuid(),
       priority: (data as any).priority ?? 'medium',
       paid_through: (data as any).paid_through ?? null,
+      card_number: (data as any).card_number ?? null,
+      card_holder: (data as any).card_holder ?? null,
       created_at: now,
       updated_at: now,
     };

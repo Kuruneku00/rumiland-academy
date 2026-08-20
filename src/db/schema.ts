@@ -225,6 +225,14 @@ export interface RecurringExpense {
    */
   priority?: 'high' | 'medium' | 'low';
   /**
+   * شماره کارت مقصد (برای هزینه‌هایی که هر ماه به یک کارت واریز می‌شود).
+   */
+  card_number?: string | null;
+  /**
+   * نام دارنده‌ی کارت مقصد.
+   */
+  card_holder?: string | null;
+  /**
    * آخرین ماه شمسی که هزینه‌اش پرداخت شده (مثلاً «1405-05»).
    * برای پرداخت زودهنگام استفاده می‌شود؛ وقتی ست باشد، موعد بعدی از ماهِ بعد
    * از این مقدار محاسبه می‌شود و یادآوریِ ماه پرداخت‌شده دوباره تکرار نمی‌شود.
@@ -509,6 +517,25 @@ export class RumilandDB extends Dexie {
           .modify((expense: any) => {
             if (expense.priority === undefined) {
               expense.priority = 'medium';
+            }
+          });
+      });
+
+    // افزودن شماره کارت و نام دارنده به هزینه ماهانه (واریز ماهانه به کارت)
+    this.version(6)
+      .stores({
+        recurringExpenses: 'id, title, category, due_day, is_active, priority',
+      })
+      .upgrade((tx) => {
+        return tx
+          .table('recurringExpenses')
+          .toCollection()
+          .modify((expense: any) => {
+            if (expense.card_number === undefined) {
+              expense.card_number = null;
+            }
+            if (expense.card_holder === undefined) {
+              expense.card_holder = null;
             }
           });
       });

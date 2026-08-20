@@ -768,7 +768,8 @@ function ExpensesTab() {
 
   // هزینه ماهانه (recurring)
   const [showRecurringModal, setShowRecurringModal] = useState(false);
-  const [recurringForm, setRecurringForm] = useState({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium' as 'high' | 'medium' | 'low' });
+  const [recurringForm, setRecurringForm] = useState({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium' as 'high' | 'medium' | 'low', card_number: '', card_holder: '' });
+  const [editingRecurringId, setEditingRecurringId] = useState<string | null>(null);
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
 
@@ -795,6 +796,30 @@ function ExpensesTab() {
     await load();
   };
 
+  const openNewRecurring = () => {
+    setRecurringError('');
+    setEditingRecurringId(null);
+    setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium', card_number: '', card_holder: '' });
+    setShowRecurringModal(true);
+  };
+
+  const openEditRecurring = (r: any) => {
+    setRecurringError('');
+    setEditingRecurringId(r.id);
+    setRecurringForm({
+      title: r.title || '',
+      category: r.category || 'rent',
+      amount: r.amount != null ? String(r.amount) : '',
+      due_day: r.due_day != null ? String(r.due_day) : '1',
+      method: r.method || 'cash',
+      description: r.description || '',
+      priority: r.priority || 'medium',
+      card_number: r.card_number || '',
+      card_holder: r.card_holder || '',
+    });
+    setShowRecurringModal(true);
+  };
+
   const handleSaveRecurring = async () => {
     const amount = Number(recurringForm.amount);
     const dueDay = Number(recurringForm.due_day);
@@ -803,18 +828,25 @@ function ExpensesTab() {
     if (!isFinite(dueDay) || dueDay < 1 || dueDay > 31) { setRecurringError('روز ماه باید بین ۱ تا ۳۱ باشد'); return; }
     setRecurringSaving(true);
     try {
-      await financeService.createRecurringExpense({
+      const payload = {
         title: recurringForm.title.trim(),
         category: recurringForm.category,
         amount,
         due_day: dueDay,
         method: recurringForm.method as any,
         description: recurringForm.description || null,
-        is_active: true,
         priority: recurringForm.priority,
-      } as any);
+        card_number: recurringForm.card_number.trim() || null,
+        card_holder: recurringForm.card_holder.trim() || null,
+      };
+      if (editingRecurringId) {
+        await financeService.updateRecurringExpense(editingRecurringId, payload as any);
+      } else {
+        await financeService.createRecurringExpense({ ...payload, is_active: true } as any);
+      }
       setShowRecurringModal(false);
-      setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium' });
+      setEditingRecurringId(null);
+      setRecurringForm({ title: '', category: 'rent', amount: '', due_day: '1', method: 'cash', description: '', priority: 'medium', card_number: '', card_holder: '' });
       await load();
       // یادآوری فوری هم بررسی شود
       await financeService.generateRecurringReminders(3);
@@ -868,7 +900,7 @@ function ExpensesTab() {
           <SummaryBox title="جمع هزینه‌های ماهانه" value={money(recurringTotal)} color="var(--color-warning)" />
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          <Button variant="secondary" onClick={() => { setRecurringError(''); setShowRecurringModal(true); }}>+ هزینه ماهانه</Button>
+          <Button variant="secondary" onClick={openNewRecurring}>+ هزینه ماهانه</Button>
           <Button onClick={() => setShowModal(true)}>ثبت هزینه جدید</Button>
         </div>
       </div>
@@ -909,6 +941,7 @@ function ExpensesTab() {
                       <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, padding: '0.125rem 0.5rem', borderRadius: 'var(--radius-full)', background: prioMeta[prio].bg, color: prioMeta[prio].color, whiteSpace: 'nowrap' }}>{prioMeta[prio].label}</span>
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{financeCategoryLabel(r.category)} · روز {Number(r.due_day).toLocaleString('fa-IR')} هر ماه · موعد بعدی: {r.due_label} · {METHOD_LABELS[r.method] || r.method}{paidLabel ? ` · پرداخت شده تا: ${paidLabel}` : ''}</div>
+                    {r.card_number ? <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-warning)', direction: 'ltr', display: 'inline-block', marginTop: '0.25rem' }}>💳 {r.card_number}{r.card_holder ? ` — ${r.card_holder}` : ''}</div> : null}
                   </div>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontWeight: 700, color: 'var(--color-danger)' }}>{money(r.amount)}</div>
@@ -922,6 +955,7 @@ function ExpensesTab() {
                     </select>
                     <button onClick={() => payEarlyRecurring(r.id)} title={isOverdue ? 'پرداخت معوقه‌ی این ماه' : 'پرداخت زودهنگام (پیش از موعد)'} style={{ background: isOverdue ? 'var(--color-danger-light)' : 'var(--color-success-light)', border: `1px solid ${isOverdue ? 'var(--color-danger)' : 'var(--color-success)'}`, borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: isOverdue ? 'var(--color-danger)' : 'var(--color-success)', padding: '0.25rem 0.6rem', whiteSpace: 'nowrap' }}>{isOverdue ? '✓ پرداخت معوقه' : '✓ پرداخت'}</button>
                     <button onClick={() => toggleRecurring(r.id, r.is_active)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: r.is_active ? 'var(--color-success)' : 'var(--color-text-muted)' }}>{r.is_active ? 'فعال' : 'غیرفعال'}</button>
+                    <button onClick={() => openEditRecurring(r)} title="ویرایش" style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-primary)', whiteSpace: 'nowrap' }}>ویرایش</button>
                     <button onClick={() => deleteRecurring(r.id)} style={{ background: 'none', border: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--font-size-xs)', color: 'var(--color-danger)' }}>حذف</button>
                   </div>
                 </div>
@@ -944,7 +978,7 @@ function ExpensesTab() {
       <TransactionDetails tx={viewing} onClose={() => setViewing(null)} />
 
       {/* مودال هزینه ماهانه */}
-      <Modal isOpen={showRecurringModal} onClose={() => setShowRecurringModal(false)} title="ثبت هزینه ماهانه" size="md" footer={<><Button variant="secondary" onClick={() => setShowRecurringModal(false)} disabled={recurringSaving}>انصراف</Button><Button onClick={handleSaveRecurring} disabled={recurringSaving}>{recurringSaving ? 'در حال ثبت...' : 'ثبت هزینه ماهانه'}</Button></>}>
+      <Modal isOpen={showRecurringModal} onClose={() => setShowRecurringModal(false)} title={editingRecurringId ? "ویرایش هزینه ماهانه" : "ثبت هزینه ماهانه"} size="md" footer={<><Button variant="secondary" onClick={() => setShowRecurringModal(false)} disabled={recurringSaving}>انصراف</Button><Button onClick={handleSaveRecurring} disabled={recurringSaving}>{recurringSaving ? 'در حال ثبت...' : editingRecurringId ? 'ذخیره تغییرات' : 'ثبت هزینه ماهانه'}</Button></>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           {recurringError && <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-danger-light)', color: 'var(--color-danger)' }}>{recurringError}</div>}
           <Input label="عنوان هزینه" value={recurringForm.title} onChange={(e) => setRecurringForm({ ...recurringForm, title: e.target.value })} placeholder="مثلاً اجاره ماهانه" />
@@ -958,6 +992,13 @@ function ExpensesTab() {
           <Select label="اولویت" value={recurringForm.priority} onChange={(v) => setRecurringForm({ ...recurringForm, priority: v as 'high' | 'medium' | 'low' })} options={[{ value: 'high', label: 'بالا (فوری)' }, { value: 'medium', label: 'متوسط' }, { value: 'low', label: 'پایین' }]} />
           <Select label="روش پرداخت" value={recurringForm.method} onChange={(v) => setRecurringForm({ ...recurringForm, method: v })} options={[{ value: 'cash', label: 'نقد' }, { value: 'card', label: 'کارت' }, { value: 'transfer', label: 'انتقال' }, { value: 'check', label: 'چک' }]} />
           <Textarea label="توضیحات" value={recurringForm.description} onChange={(e) => setRecurringForm({ ...recurringForm, description: e.target.value })} />
+          <div style={{ padding: '0.75rem', borderRadius: 'var(--radius-md)', background: 'var(--color-bg-secondary)', border: 'var(--border-default)' }}>
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginBottom: '0.6rem' }}>در صورت واریز هر ماه به کارت، مشخصات کارت مقصد را وارد کنید:</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              <Input label="شماره کارت" value={recurringForm.card_number} onChange={(e) => setRecurringForm({ ...recurringForm, card_number: e.target.value })} placeholder="۶۱۰۴-۳۳۳۳-…" dir="ltr" />
+              <Input label="نام دارنده کارت" value={recurringForm.card_holder} onChange={(e) => setRecurringForm({ ...recurringForm, card_holder: e.target.value })} placeholder="مثلاً علی احمدی" />
+            </div>
+          </div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>این هزینه هر ماه در «روز ماه» مشخص‌شده تکرار می‌شود و نزدیک موعد، اعلان یادآوری دریافت می‌کنید.</div>
         </div>
       </Modal>
